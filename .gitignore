@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# PyInstaller
+app/build/
+app/dist/
+
+# 로컬 데이터 (메일함, 전용 브라우저 프로필, SQLite) — 절대 커밋 금지
+*.mbox
+*.eml
+app/data/
+*.sqlite3
+*.db

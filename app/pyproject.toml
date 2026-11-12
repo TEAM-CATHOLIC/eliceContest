@@ -1,0 +1,45 @@
+[project]
+name = "account-cleaner"
+version = "0.1.0"
+description = "계정 정리 AI 에이전트 — 데스크톱 앱"
+readme = "README.md"
+authors = [
+    { name = "tomass22", email = "dominanthat@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "playwright>=1.65.1",
+    "pyside6-essentials>=6.12.0",
+]
+
+[project.scripts]
+account-cleaner = "account_cleaner.main:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.3",
+    "pytest>=9.2.0",
+    "pytest-qt>=4.5.0",
+    "ruff>=0.17.5",
+]
+ml = [
+    "scikit-learn>=1.9.1",
+    "sentence-transformers>=6.3.0",
+]
+
+[tool.uv]
+# ml 그룹(sentence-transformers, scikit-learn)은 용량이 커서 기본 설치에서 뺀다.
+# 필요할 때: uv sync --group ml
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
