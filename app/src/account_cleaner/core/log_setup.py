@@ -6,6 +6,7 @@
 
 import logging
 import re
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -44,8 +45,10 @@ def setup_logging(log_dir: Path, level: int = logging.INFO) -> None:
     file_handler = RotatingFileHandler(
         log_dir / LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8"
     )
-    console = logging.StreamHandler()
-    for h in (file_handler, console):
+    handlers: list[logging.Handler] = [file_handler]
+    if sys.stderr is not None:  # 창 모드 실행파일(Windows)에는 콘솔이 없다
+        handlers.append(logging.StreamHandler())
+    for h in handlers:
         h.setFormatter(formatter)
         h.addFilter(RedactEmailFilter())
         h._account_cleaner = True  # type: ignore[attr-defined]
