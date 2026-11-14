@@ -6,11 +6,14 @@ from pathlib import Path
 from account_cleaner.contracts import (
     AgentEvent,
     AgentStatus,
+    AgentStep,
     EventCallback,
     HandoffReason,
     Playbook,
     WithdrawAgent,
 )
+
+STEP_TITLES = ("로그인", "탈퇴 메뉴 진입", "탈퇴 전 조건 확인")
 
 
 class FakeWithdrawAgent(WithdrawAgent):
@@ -32,25 +35,34 @@ class FakeWithdrawAgent(WithdrawAgent):
         self._resume.clear()
         self._stop.clear()
         self._awaiting_user = False
+        login, menu, conditions = (
+            AgentStep(i, len(STEP_TITLES), t) for i, t in enumerate(STEP_TITLES, start=1)
+        )
         script = [
             AgentEvent(
                 AgentStatus.NAVIGATING,
                 f"{playbook.service} 로그인 페이지 여는 중",
                 url=playbook.login_url,
+                step=login,
             ),
             AgentEvent(
                 AgentStatus.USER_TURN,
                 "로그인해 주세요. 끝나면 '계속'을 누르세요.",
                 reason=HandoffReason.LOGIN,
                 url=playbook.login_url,
+                step=login,
             ),
             AgentEvent(
-                AgentStatus.NAVIGATING, "계정 설정 → 탈퇴 메뉴로 이동 중", url=playbook.withdraw_url
+                AgentStatus.NAVIGATING,
+                "계정 설정 → 탈퇴 메뉴로 이동 중",
+                url=playbook.withdraw_url,
+                step=menu,
             ),
             AgentEvent(
                 AgentStatus.REACHED,
                 "탈퇴 화면에 도착했습니다. 조건을 확인하고 최종 버튼은 직접 누르세요.",
                 url=playbook.withdraw_url,
+                step=conditions,
             ),
         ]
         for step, event in enumerate(script):

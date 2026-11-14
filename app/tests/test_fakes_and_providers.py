@@ -99,6 +99,8 @@ class TestFakeWithdrawAgent:
             AgentStatus.NAVIGATING,
             AgentStatus.REACHED,
         ]
+        assert [e.step.index for e in events] == [1, 1, 2, 3]
+        assert {e.step.total for e in events} == {3}
         assert done["final"].status is AgentStatus.REACHED
 
     def test_resume_outside_user_turn_is_ignored(self, tmp_path, playbook):

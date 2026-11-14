@@ -43,6 +43,27 @@ class HandoffReason(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class AgentStep:
+    """에이전트가 지금 몇 번째 단계에 있는지. UI의 단계 표시(Step n of m)에 쓴다.
+
+    단계 수와 제목은 플레이북마다 브라우저 쪽이 정한다 (예: "탈퇴 메뉴 진입", "탈퇴 전 조건 확인",
+    "본인 확인"). 최종 탈퇴 버튼은 사용자가 누르므로 단계에 넣지 않는다. UI가 마지막에
+    "최종 탈퇴 (직접)"를 잠긴 단계로 따로 붙인다.
+    """
+
+    index: int
+    """1부터 시작"""
+    total: int
+    title: str
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.index <= self.total:
+            raise ValueError(f"단계 번호가 범위를 벗어남: {self.index}/{self.total}")
+        if not self.title.strip():
+            raise ValueError("단계 제목이 비어 있음")
+
+
+@dataclass(frozen=True, slots=True)
 class AgentEvent:
     status: AgentStatus
     message: str = ""
@@ -51,6 +72,8 @@ class AgentEvent:
     """`USER_TURN`일 때만 채운다."""
     url: str | None = None
     """현재 페이지 주소 (기록용)"""
+    step: AgentStep | None = None
+    """지금 단계. 종료 이벤트(`STOPPED`·`FAILED`)는 비워도 된다. UI는 마지막으로 받은 단계를 유지한다."""
 
     def __post_init__(self) -> None:
         if (self.status is AgentStatus.USER_TURN) != (self.reason is not None):

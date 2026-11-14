@@ -10,6 +10,7 @@
 from account_cleaner.contracts.agent import (
     AgentEvent,
     AgentStatus,
+    AgentStep,
     EventCallback,
     HandoffReason,
     WithdrawAgent,
@@ -38,6 +39,7 @@ __all__ = [
     "AccountCandidate",
     "AgentEvent",
     "AgentStatus",
+    "AgentStep",
     "AnalysisCancelled",
     "CancelCheck",
     "EventCallback",

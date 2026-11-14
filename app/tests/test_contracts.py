@@ -8,6 +8,7 @@ from account_cleaner.contracts import (
     AccountCandidate,
     AgentEvent,
     AgentStatus,
+    AgentStep,
     Evidence,
     EvidenceType,
     HandoffReason,
@@ -110,6 +111,13 @@ class TestAgentEvent:
         with pytest.raises(ValueError):
             AgentEvent(AgentStatus.NAVIGATING, reason=HandoffReason.LOGIN)
         AgentEvent(AgentStatus.USER_TURN, reason=HandoffReason.CAPTCHA)
+
+    def test_step(self):
+        step = AgentStep(2, 3, "탈퇴 메뉴 진입")
+        assert AgentEvent(AgentStatus.NAVIGATING, step=step).step == step
+        for bad in [(0, 3, "a"), (4, 3, "a"), (1, 3, " ")]:
+            with pytest.raises(ValueError):
+                AgentStep(*bad)
 
     def test_final_states(self):
         finals = {s for s in AgentStatus if s.is_final}
