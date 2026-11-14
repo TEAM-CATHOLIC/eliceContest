@@ -24,7 +24,7 @@ def mail(n, domain, subject):
         sender_domain=domain,
         subject=subject,
         date=T0 + timedelta(days=n),
-        body_preview="",
+        body_text="",
     )
 
 

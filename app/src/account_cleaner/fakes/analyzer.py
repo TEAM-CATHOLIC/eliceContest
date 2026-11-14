@@ -36,7 +36,7 @@ _SOCIAL = {"카카오": LoginMethod.KAKAO, "네이버": LoginMethod.NAVER, "구�
 
 
 def classify(mail: ParsedMail) -> Evidence:
-    text = f"{mail.subject} {mail.body_preview}".lower()
+    text = f"{mail.subject} {mail.body_text[:1000]}".lower()
     for etype, words in _KEYWORDS:
         if any(w.lower() in text for w in words):
             return Evidence(mail.id, etype, 0.9)

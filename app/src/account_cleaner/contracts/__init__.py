@@ -24,7 +24,7 @@ from account_cleaner.contracts.analysis import (
     ProgressCallback,
 )
 from account_cleaner.contracts.login import LoginMethod
-from account_cleaner.contracts.mail import BODY_PREVIEW_LIMIT, ParsedMail
+from account_cleaner.contracts.mail import ParsedMail
 from account_cleaner.contracts.playbook import (
     Playbook,
     PlaybookError,
@@ -34,7 +34,6 @@ from account_cleaner.contracts.playbook import (
 )
 
 __all__ = [
-    "BODY_PREVIEW_LIMIT",
     "AccountAnalyzer",
     "AccountCandidate",
     "AgentEvent",

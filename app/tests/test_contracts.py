@@ -29,7 +29,7 @@ def mail(**kw):
         "sender_domain": "shop.example.com",
         "subject": "s",
         "date": NOW,
-        "body_preview": "",
+        "body_text": "",
     }
     return ParsedMail(**(base | kw))
 
@@ -69,7 +69,6 @@ class TestParsedMail:
             {"id": ""},
             {"sender_domain": "Shop.example.com"},
             {"date": datetime(2026, 1, 1)},
-            {"body_preview": "x" * 1001},
         ],
     )
     def test_invalid(self, kw):

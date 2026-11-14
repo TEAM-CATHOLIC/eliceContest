@@ -9,7 +9,8 @@ class ParsedMail:
     """메일 한 통에서 분류에 필요한 최소 정보.
 
     약속:
-    - 메일 원문 전체는 담지 않는다. 본문은 앞부분(`body_preview`)만 평문으로 둔다 (PRD NF-01).
+    - 본문은 HTML을 걷어낸 **평문 전체**(`body_text`)다. 첨부파일은 담지 않는다 (PRD F-01).
+      분류기에 얼마나 넣을지(임베딩 길이 제한 등)는 ML 쪽에서 정한다.
     - `sender_domain`은 소문자이고 `sender`의 `@` 뒤와 같다.
     - `date`는 시간대 정보가 있는(aware) datetime이다.
     - 이 객체는 기기 밖으로 보내지 않는다.
@@ -23,8 +24,8 @@ class ParsedMail:
     """예: "shop.example.com" """
     subject: str
     date: datetime
-    body_preview: str
-    """HTML을 걷어낸 평문 앞부분 (최대 `BODY_PREVIEW_LIMIT`자)."""
+    body_text: str
+    """HTML을 걷어낸 본문 평문 전체. 본문이 없으면 빈 문자열."""
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -33,8 +34,3 @@ class ParsedMail:
             raise ValueError(f"sender_domain은 소문자여야 함: {self.sender_domain!r}")
         if self.date.tzinfo is None:
             raise ValueError("ParsedMail.date는 시간대 정보가 있어야 함")
-        if len(self.body_preview) > BODY_PREVIEW_LIMIT:
-            raise ValueError(f"body_preview는 {BODY_PREVIEW_LIMIT}자 이하여야 함")
-
-
-BODY_PREVIEW_LIMIT = 1000
