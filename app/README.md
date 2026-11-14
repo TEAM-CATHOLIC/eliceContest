@@ -135,6 +135,17 @@ app/
 
 - **실제 메일 파일(`.mbox`, `.eml`)과 SQLite 파일은 커밋하지 않는다.** `.gitignore`에 걸려 있지만, 테스트용 메일은 `app/data/` 아래에 두면 안전하다.
 - 브라우저 테스트는 **본인 계정으로 최종 탈퇴 버튼을 누르지 않는다** (PRD 5장).
+- **테스트 함수 이름은 한글로, 무엇을 보장하는지 문장으로 쓴다.** `test_` 접두사는 pytest가 찾기 위해 남긴다. 본문은 `# given`, `# when`, `# then` 주석으로 나눈다. 준비가 따로 없거나 실행과 확인이 붙어 있으면 `# given / when`, `# when / then`처럼 합친다.
+
+```python
+def test_비밀번호나_토큰_설정키는_저장을_거부한다(tmp_path):
+    # given
+    settings = AppSettings(tmp_path / "settings.ini")
+
+    # when / then
+    with pytest.raises(ValueError):
+        settings.set("naver/password", "x")
+```
 
 ---
 
