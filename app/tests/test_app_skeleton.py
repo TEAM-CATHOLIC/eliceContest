@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QLabel
 from account_cleaner.core.log_setup import LOG_FILE, redact_emails, setup_logging
 from account_cleaner.core.paths import HOME_ENV, resolve_app_paths
 from account_cleaner.core.settings import AppSettings
-from account_cleaner.ui.main_window import MainWindow, PageId
+from account_cleaner.ui.main_window import FIRST_RUN_PAGE, MainWindow, PageId
 from account_cleaner.ui.workers import BackgroundTask, TaskContext
 
 # --- 경로·설정·로그 ---
@@ -142,21 +142,22 @@ def test_task_cannot_start_twice(qtbot):
 def test_pages_navigation(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
+    assert window.current_page() is FIRST_RUN_PAGE
     with qtbot.waitSignal(window.page_changed) as blocker:
-        window.show_page(PageId.CANDIDATES)
-    assert blocker.args == [PageId.CANDIDATES.value]
-    assert window.current_page() is PageId.CANDIDATES
-    window.show_page(PageId.PROGRESS)
-    assert window.current_page() is PageId.PROGRESS
+        window.show_page(PageId.INVENTORY)
+    assert blocker.args == [PageId.INVENTORY.value]
+    assert window.current_page() is PageId.INVENTORY
+    window.show_page(PageId.HISTORY)
+    assert window.current_page() is PageId.HISTORY
 
 
 def test_set_page_replaces_placeholder(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
-    window.show_page(PageId.IMPORT)
+    window.show_page(PageId.SOURCES)
     real = QLabel("real")
-    window.set_page(PageId.IMPORT, real)
-    assert window.page(PageId.IMPORT) is real
+    window.set_page(PageId.SOURCES, real)
+    assert window.page(PageId.SOURCES) is real
     assert window._stack.currentWidget() is real
 
 
@@ -164,12 +165,27 @@ def test_last_page_and_geometry_restored(qtbot, tmp_path):
     settings = AppSettings(tmp_path / "settings.ini")
     first = MainWindow(settings)
     qtbot.addWidget(first)
-    first.show_page(PageId.PROGRESS)
+    first.show_page(PageId.AGENT)
     first.close()
 
     second = MainWindow(AppSettings(tmp_path / "settings.ini"))
     qtbot.addWidget(second)
-    assert second.current_page() is PageId.PROGRESS
+    assert second.current_page() is PageId.AGENT
+
+
+def test_top_bar_and_sidebar_footer(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    with qtbot.waitSignal(window.top_bar.search_changed) as blocker:
+        window.top_bar.search.setText("netflix")
+    assert blocker.args == ["netflix"]
+
+    footer = window.sidebar_footer
+    assert footer.status("엔진 암호화") == "미정"
+    footer.set_status("엔진 암호화", "적용됨")
+    assert footer.status("엔진 암호화") == "적용됨"
+    with qtbot.waitSignal(footer.clear_logins_requested):
+        footer.clear_logins_button.click()
 
 
 def test_shutdown_all_without_event_loop(qtbot):
