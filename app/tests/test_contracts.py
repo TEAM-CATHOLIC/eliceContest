@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from account_cleaner.contracts import (
+    LOCAL_HTTP_ENV,
     AccountAnalyzer,
     AccountCandidate,
     AgentEvent,
@@ -17,6 +18,7 @@ from account_cleaner.contracts import (
     PlaybookError,
     WithdrawAgent,
     host_matches,
+    is_secure_url,
     load_playbook,
 )
 
@@ -180,6 +182,46 @@ class TestAbstractEnforcement:
         # when / then
         with pytest.raises(TypeError):
             Broken(tmp_path)
+
+
+LOCAL_PLAYBOOK = VALID_PLAYBOOK | {
+    "id": "demo",
+    "domains": ["127.0.0.1"],
+    "login_url": "http://127.0.0.1:8765/login",
+    "password_reset_url": "http://127.0.0.1:8765/login",
+    "withdraw_url": "http://127.0.0.1:8765/settings",
+}
+
+
+class TestLocalHttp:
+    def test_로컬_데모_주소는_기본값에서_http도_허용한다(self, monkeypatch):
+        # given
+        monkeypatch.delenv(LOCAL_HTTP_ENV, raising=False)
+
+        # when
+        pb = Playbook.from_dict(LOCAL_PLAYBOOK)
+
+        # then
+        assert pb.allows("http://127.0.0.1:8765/settings")
+
+    def test_배포_설정에서_로컬_http를_끄면_https만_허용한다(self, monkeypatch):
+        # given
+        monkeypatch.setenv(LOCAL_HTTP_ENV, "0")
+
+        # when / then
+        with pytest.raises(PlaybookError, match="https"):
+            Playbook.from_dict(LOCAL_PLAYBOOK)
+        assert not is_secure_url("http://localhost/")
+
+    @pytest.mark.parametrize(
+        "url", ["http://example.com/", "http://127.0.0.1.evil.io/", "ftp://127.0.0.1/"]
+    )
+    def test_루프백이_아닌_http나_다른_scheme은_항상_거부한다(self, monkeypatch, url):
+        # given
+        monkeypatch.delenv(LOCAL_HTTP_ENV, raising=False)
+
+        # when / then
+        assert not is_secure_url(url)
 
 
 class TestPlaybook:
