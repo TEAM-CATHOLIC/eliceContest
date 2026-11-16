@@ -215,3 +215,20 @@ def test_탈퇴_화면에_도착하면_사용자가_창을_닫을_때까지_브�
     assert still_open
     assert done["final"].status is AgentStatus.REACHED
     assert [e.status for e in events].count(AgentStatus.REACHED) == 1
+
+
+def test_사용자_차례에_Chrome_창을_닫으면_중단으로_끝난다(tmp_path):
+    """회귀: 창을 닫으면 브라우저 정리 중 오류가 나 '실행하지 못했습니다(FAILED)'로 끝났다."""
+    # given: 로그인 화면에서 사용자 차례
+    page = ClosablePage(url="https://example.com/login", visible={PASSWORD})
+    agent = agent_with(page, tmp_path)
+    thread, events, done = run_in_thread(agent, PLAYBOOK)
+    wait_for(lambda: events and events[-1].status is AgentStatus.USER_TURN)
+
+    # when: 사용자가 창을 닫음
+    page.closed = True
+    thread.join(3)
+
+    # then
+    assert done["final"].status is AgentStatus.STOPPED
+    assert "창을 닫아" in done["final"].message

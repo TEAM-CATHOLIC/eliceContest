@@ -123,6 +123,10 @@ class WithdrawAgent(ABC):
     def stop(self) -> None:
         """진행을 멈추고 `STOPPED`로 끝내게 한다. 이미 끝났으면 무시한다."""
 
+    def bring_to_front(self) -> None:
+        """브라우저 창을 앞으로 가져온다 (UI의 '창 앞으로 가져오기'). UI 스레드에서 불리므로
+        신호만 보낸다. 구현하지 않으면 아무 일도 하지 않는다."""
+
     @abstractmethod
     def clear_session(self, domains: tuple[str, ...] | None = None) -> None:
         """전용 프로필에서 로그인 세션(쿠키·저장소)을 지운다 (논의사항 D-05).

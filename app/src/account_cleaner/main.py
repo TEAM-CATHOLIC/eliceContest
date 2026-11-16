@@ -10,8 +10,9 @@ from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
 from account_cleaner.core.settings import AppSettings
+from account_cleaner.ui.agent_page import AgentPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
-from account_cleaner.ui.main_window import APP_TITLE, MainWindow
+from account_cleaner.ui.main_window import APP_TITLE, MainWindow, PageId
 from account_cleaner.ui.workers import BackgroundTask
 
 ORGANIZATION = "TEAM-CATHOLIC"
@@ -77,6 +78,7 @@ def main() -> int:
     log.info("앱 시작 (데이터 폴더: %s)", paths.root)
 
     window = MainWindow(AppSettings(paths.settings_file))
+    window.set_page(PageId.AGENT, AgentPage(paths.browser_profile))
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
     window.show()
     QTimer.singleShot(0, lambda: warn_if_chrome_missing(window))

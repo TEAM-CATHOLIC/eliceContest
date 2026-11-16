@@ -56,6 +56,16 @@ HANDOFF_MESSAGES = {
     HandoffReason.UNKNOWN: "다음 동작을 찾지 못했습니다. 화면을 직접 확인해 주세요.",
 }
 DONE_SUFFIX = " 끝나면 '계속'을 누르세요."
+STOPPED_MESSAGE = "중단했습니다."
+CLOSED_MESSAGE = "Chrome 창을 닫아 안내를 중단했습니다."
+
+
+def browser_closed(page: Any) -> bool:
+    """사용자가 Chrome 창을 모두 닫았는지. 닫힘을 알 수 없는 페이지(테스트용)는 False."""
+    context = getattr(page, "context", None)
+    if context is None:
+        return False
+    return all(p.is_closed() for p in context.pages)
 
 
 def to_engine_playbook(playbook: Playbook) -> EnginePlaybook:
@@ -73,6 +83,7 @@ def to_engine_playbook(playbook: Playbook) -> EnginePlaybook:
 @asynccontextmanager
 async def open_chrome_page(profile_dir: Path, headless: bool = False) -> AsyncIterator[Any]:
     """설치된 Chrome을 앱 전용 프로필로 띄운다 (사용자의 기본 Chrome 프로필과 분리)."""
+    from playwright.async_api import Error as PlaywrightError
     from playwright.async_api import async_playwright
 
     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -88,7 +99,10 @@ async def open_chrome_page(profile_dir: Path, headless: bool = False) -> AsyncIt
         try:
             yield page
         finally:
-            await context.close()
+            try:
+                await context.close()
+            except PlaywrightError:  # 사용자가 이미 창을 닫음
+                pass
 
 
 class PlaywrightWithdrawAgent(WithdrawAgent):
@@ -97,6 +111,7 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
         self._open_page = page_opener or open_chrome_page
         self._resume = threading.Event()
         self._stop = threading.Event()
+        self._front = threading.Event()
         self._awaiting_user = False
 
     # --- UI 스레드에서 호출 ---
@@ -107,6 +122,21 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
 
     def stop(self) -> None:
         self._stop.set()
+
+    def bring_to_front(self) -> None:
+        self._front.set()
+
+    async def _sleep_and_serve(self, page: Any) -> None:
+        """대기 중에 UI 요청(창 앞으로 가져오기)을 처리한다. 실패해도 진행에는 영향 없음."""
+        if self._front.is_set():
+            self._front.clear()
+            raise_window = getattr(page, "bring_to_front", None)
+            if raise_window is not None:
+                try:
+                    await raise_window()
+                except Exception:  # 창이 이미 닫혔을 수 있음
+                    log.debug("창 앞으로 가져오기 실패", exc_info=True)
+        await asyncio.sleep(POLL_SECONDS)
 
     # --- 작업 스레드에서 호출 ---
 
@@ -153,8 +183,10 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
             start, navigate_entry = 0, True
             while True:
                 result = await self._run_engine(agent, page, start, navigate_entry)
+                if browser_closed(page):
+                    return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, CLOSED_MESSAGE))
                 if result is None:
-                    return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, "중단했습니다."))
+                    return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, STOPPED_MESSAGE))
                 if result.status is not EngineStatus.WAITING_FOR_USER:
                     final = self._finish(on_event, self._final_event(result, step_info))
                     if final.status is AgentStatus.REACHED:
@@ -173,43 +205,41 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
                         step=step_info(result.next_step),
                     )
                 )
-                if not await self._wait_for_user():
-                    return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, "중단했습니다."))
+                if not await self._wait_for_user(page):
+                    message = CLOSED_MESSAGE if browser_closed(page) else STOPPED_MESSAGE
+                    return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, message))
                 start, navigate_entry = result.next_step, False
 
     async def _run_engine(
         self, agent: BrowserAgent, page: Any, start: int, navigate_entry: bool
     ) -> AgentResult | None:
-        """엔진을 실행하고, 도중에 `stop()`이 오면 취소한 뒤 None을 돌려준다."""
+        """엔진을 실행하고, 도중에 `stop()`이 오거나 창이 닫히면 취소한 뒤 None을 돌려준다."""
         task = asyncio.create_task(agent.run(page, start_step=start, navigate_entry=navigate_entry))
         while not task.done():
-            if self._stop.is_set():
+            if self._stop.is_set() or browser_closed(page):
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
                 return None
-            await asyncio.sleep(POLL_SECONDS)
+            await self._sleep_and_serve(page)
         return task.result()
 
     async def _wait_until_closed(self, page: Any) -> None:
         """사용자가 Chrome 창을 모두 닫거나 `stop()`이 올 때까지 기다린다."""
-        context = getattr(page, "context", None)
-        if context is None:
+        if getattr(page, "context", None) is None:
             return
-        while not self._stop.is_set():
-            if all(p.is_closed() for p in context.pages):
-                return
-            await asyncio.sleep(POLL_SECONDS)
+        while not self._stop.is_set() and not browser_closed(page):
+            await self._sleep_and_serve(page)
 
-    async def _wait_for_user(self) -> bool:
-        """`resume()`이면 True, `stop()`이면 False."""
+    async def _wait_for_user(self, page: Any) -> bool:
+        """`resume()`이면 True, `stop()`이나 창 닫기면 False."""
         try:
             while not self._resume.is_set():
-                if self._stop.is_set():
+                if self._stop.is_set() or browser_closed(page):
                     return False
-                await asyncio.sleep(POLL_SECONDS)
+                await self._sleep_and_serve(page)
             return True
         finally:
             self._awaiting_user = False
@@ -224,7 +254,7 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
                 AgentStatus.REACHED, message, url=url, step=step_info(result.next_step - 1)
             )
         if result.status is EngineStatus.CANCELLED:
-            return AgentEvent(AgentStatus.STOPPED, "중단했습니다.", url=url)
+            return AgentEvent(AgentStatus.STOPPED, STOPPED_MESSAGE, url=url)
         if result.status is EngineStatus.BLOCKED:
             return AgentEvent(
                 AgentStatus.FAILED, f"안전 정책으로 멈췄습니다: {result.message}", url=url
