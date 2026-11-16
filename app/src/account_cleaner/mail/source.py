@@ -32,3 +32,7 @@ class MailSource(ABC):
 
     @abstractmethod
     def __iter__(self) -> Iterator[RawMail]: ...
+
+    def failures(self) -> list[tuple[str, str]]:
+        """원문을 받지 못해 건너뛴 메일 (위치, 이유). 계정 연결 소스가 네트워크 오류 등을 담는다."""
+        return []

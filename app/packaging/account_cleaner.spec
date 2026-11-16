@@ -12,16 +12,28 @@ datas = [
     # Playwright 드라이버(node + 패키지). 공식 PyInstaller hook이 없어 직접 넣는다.
     # 브라우저는 넣지 않는다 — 설치된 Chrome(channel="chrome")을 쓴다.
     *collect_data_files("playwright"),
+    # Gmail API 디스커버리 문서 (아래에서 gmail.v1만 남긴다)
+    *collect_data_files("googleapiclient", includes=["discovery_cache/documents/gmail.v1.json"]),
 ]
+
+DISCOVERY_DIR = "googleapiclient/discovery_cache/documents/"
+KEEP_DISCOVERY = {"gmail.v1.json"}
 
 a = Analysis(
     ["launcher.py"],
     pathex=[],
     datas=datas,
     hiddenimports=[],
-    excludes=["tkinter", "unittest", "pydoc", "pytest"],
+    excludes=["tkinter", "pytest"],
     noarchive=False,
 )
+# googleapiclient용 PyInstaller hook이 디스커버리 문서 전체(약 110MB)를 넣으므로 gmail.v1만 남긴다.
+def _keep(dest: str) -> bool:
+    dest = dest.replace("\\", "/")  # Windows 경로 구분자
+    return not dest.startswith(DISCOVERY_DIR) or dest.rsplit("/", 1)[-1] in KEEP_DISCOVERY
+
+
+a.datas = [d for d in a.datas if _keep(d[0])]
 pyz = PYZ(a.pure)
 
 exe = EXE(

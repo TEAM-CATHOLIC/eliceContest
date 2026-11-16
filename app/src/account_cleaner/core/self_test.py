@@ -41,6 +41,18 @@ def check_resources() -> Check:
     return Check("resources", bool(files), f"예시 플레이북 {len(files)}개")
 
 
+def check_gmail() -> Check:
+    """Gmail API 클라이언트를 네트워크 없이 만들 수 있는지 (디스커버리 문서·인증서 포함 여부)."""
+    import httplib2.certs
+    from google.auth.credentials import AnonymousCredentials
+
+    from account_cleaner.mail.gmail import GoogleGmailApi
+
+    GoogleGmailApi(AnonymousCredentials())
+    certs = Path(httplib2.certs.where())
+    return Check("gmail", certs.is_file(), f"discovery gmail.v1, certs={certs.name}")
+
+
 def check_browser(require_chrome: bool) -> list[Check]:
     from playwright._impl._driver import compute_driver_executable
     from playwright.sync_api import sync_playwright
@@ -72,7 +84,7 @@ def check_browser(require_chrome: bool) -> list[Check]:
 
 def run_self_test(require_chrome: bool = False) -> list[Check]:
     checks: list[Check] = []
-    for name, fn in (("qt", check_qt), ("resources", check_resources)):
+    for name, fn in (("qt", check_qt), ("resources", check_resources), ("gmail", check_gmail)):
         try:
             checks.append(fn())
         except Exception as e:  # noqa: BLE001 — 어떤 실패든 결과로 보고한다

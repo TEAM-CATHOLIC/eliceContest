@@ -72,6 +72,8 @@ def iter_parsed_mails(
         seen.add(mail.id)
         stats.parsed += 1
         yield mail
+    for origin, reason in source.failures():
+        _skip(stats, origin, reason)
     if on_progress:
         on_progress(total or last_progress, total or last_progress)
 

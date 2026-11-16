@@ -6,6 +6,17 @@ from account_cleaner.mail.files import (
     UnsupportedFileError,
     iter_mbox,
 )
+from account_cleaner.mail.gmail import (
+    GmailError,
+    GmailLoginError,
+    GmailMailSource,
+    GmailSetupError,
+    GoogleGmailApi,
+    authorize,
+    find_client_secret,
+    load_client_config,
+    revoke,
+)
 from account_cleaner.mail.importer import (
     ImportCancelled,
     ImportResult,
@@ -20,6 +31,11 @@ from account_cleaner.mail.source import MailSource, RawMail
 __all__ = [
     "SUPPORTED_EXTENSIONS",
     "FileMailSource",
+    "GmailError",
+    "GmailLoginError",
+    "GmailMailSource",
+    "GmailSetupError",
+    "GoogleGmailApi",
     "ImportCancelled",
     "ImportResult",
     "ImportStats",
@@ -28,9 +44,13 @@ __all__ = [
     "RawMail",
     "SkippedMail",
     "UnsupportedFileError",
+    "authorize",
     "decode_bytes",
+    "find_client_secret",
     "import_mails",
     "iter_mbox",
     "iter_parsed_mails",
+    "load_client_config",
     "parse_mail",
+    "revoke",
 ]
