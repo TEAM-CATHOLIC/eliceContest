@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from collections import Counter, deque
 from collections.abc import Callable, Iterator
 from email.header import Header
 from email.message import Message
@@ -34,8 +35,16 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 CLIENT_SECRET_ENV = "ACCOUNT_CLEANER_GOOGLE_CLIENT_SECRET"
 CLIENT_SECRET_FILE = "google_client_secret.json"
 LOGIN_TIMEOUT_SECONDS = 300
-BATCH_SIZE = 50
-"""Gmail은 배치 하나에 50건 이하를 권장한다 (넘으면 요청 한도에 잘 걸림)."""
+INITIAL_BATCH_SIZE = 20
+MIN_BATCH_SIZE = 5
+MAX_BATCH_SIZE = 50
+"""Gmail은 배치 안의 요청을 동시에 처리해 사용자당 동시 요청 한도에 걸리기 쉽다. 20에서 시작해
+한도에 걸리면 절반으로 줄이고, 연속으로 성공하면 조금씩 늘린다 (최대 50, Gmail 권장 상한)."""
+GROW_AFTER = 3
+"""이만큼 연속으로 한도에 안 걸리면 배치를 늘린다."""
+GROW_STEP = 5
+MAX_ATTEMPTS_PER_MESSAGE = 8
+MAX_BACKOFF_SECONDS = 32
 MAX_RETRIES = 5
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 RATE_LIMIT_REASONS = {"ratelimitexceeded", "userratelimitexceeded"}
@@ -313,6 +322,9 @@ class GmailMailSource(MailSource):
         self._sleep = sleep
         self._clock = clock
         self._last_request: float | None = None
+        self.batch_size = INITIAL_BATCH_SIZE
+        self.rate_limited = 0
+        """한도에 걸려 다시 보낸 횟수 (속도 조정 확인용)"""
         self._ids: list[str] | None = None
         self._failures: list[tuple[str, str]] = []
         self.account = ""
@@ -355,40 +367,42 @@ class GmailMailSource(MailSource):
         self._last_request = self._clock()
         return self._api.get_full(ids)
 
-    def _fetch(self, ids: list[str]) -> dict[str, dict]:
-        """한 배치를 받는다. 요청 한도 초과·서버 오류는 지수 백오프로 다시 시도한다."""
-        pending, fetched = list(ids), {}
-        for attempt in range(MAX_RETRIES + 1):
-            self._check_cancel()
-            results = self._get_full_paced(pending)
-            retry = []
-            for message_id in pending:
-                result = results.get(message_id)
-                if isinstance(result, dict):
-                    fetched[message_id] = result
-                elif is_retryable(result):
-                    retry.append(message_id)
-                else:
-                    self._failures.append(
-                        (f"gmail:{message_id}", f"받기 실패 ({http_status(result)})")
-                    )
-            if not retry:
-                break
-            pending = retry
-            if attempt < MAX_RETRIES:
-                self._sleep(min(2**attempt, 30))
-        else:
-            for message_id in pending:
-                self._failures.append((f"gmail:{message_id}", "요청 한도 초과로 받지 못함"))
-        return fetched
-
     def __iter__(self) -> Iterator[RawMail]:
-        ids = self.message_ids()
-        done = 0
-        for start in range(0, len(ids), BATCH_SIZE):
-            chunk = ids[start : start + BATCH_SIZE]
-            fetched = self._fetch(chunk)
+        """대기열에서 배치 크기만큼 꺼내 받는다. 한도에 걸린 메일은 대기열 앞으로 돌려보낸다."""
+        queue = deque(self.message_ids())
+        attempts: Counter[str] = Counter()
+        done = clean_streak = backoff_level = 0
+        while queue:
+            self._check_cancel()
+            chunk = [queue.popleft() for _ in range(min(self.batch_size, len(queue)))]
+            results = self._get_full_paced(chunk)
+            limited = []
             for message_id in chunk:
-                done += 1
-                if message := fetched.get(message_id):
-                    yield RawMail(message_to_bytes(message), f"gmail:{message_id}", done)
+                result = results.get(message_id)
+                origin = f"gmail:{message_id}"
+                if isinstance(result, dict):
+                    done += 1
+                    yield RawMail(message_to_bytes(result), origin, done)
+                elif not is_retryable(result):
+                    done += 1
+                    self._failures.append((origin, f"받기 실패 ({http_status(result)})"))
+                else:
+                    attempts[message_id] += 1
+                    self.rate_limited += 1
+                    if attempts[message_id] < MAX_ATTEMPTS_PER_MESSAGE:
+                        limited.append(message_id)
+                        continue
+                    done += 1
+                    self._failures.append((origin, "요청 한도 초과로 받지 못함"))
+            if limited:
+                queue.extendleft(reversed(limited))
+                self.batch_size = max(MIN_BATCH_SIZE, self.batch_size // 2)
+                clean_streak = 0
+                self._sleep(min(2**backoff_level, MAX_BACKOFF_SECONDS))
+                backoff_level += 1
+            else:
+                backoff_level = 0
+                clean_streak += 1
+                if clean_streak >= GROW_AFTER:
+                    self.batch_size = min(MAX_BATCH_SIZE, self.batch_size + GROW_STEP)
+                    clean_streak = 0

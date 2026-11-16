@@ -193,7 +193,7 @@ def test_첨부는_본문_없이_조립되어_본문에_들어가지_않는다()
 # --- 메일 소스 ---
 
 
-def test_모든_페이지의_메일을_50통씩_나눠_받는다():
+def test_모든_페이지의_메일을_받고_배치는_20통에서_시작해_연속_성공하면_늘린다():
     # given: 120통, 목록 페이지는 50개씩
     api = FakeApi([f"m{i}" for i in range(120)], page_size=50)
     source, _ = source_of(api)
@@ -201,10 +201,42 @@ def test_모든_페이지의_메일을_50통씩_나눠_받는다():
     # when
     result = import_mails(source)
 
-    # then
+    # then: 20통 3번 성공 → 25통
     assert len(result.mails) == 120
-    assert [len(b) for b in api.batches] == [50, 50, 20]
+    assert [len(b) for b in api.batches] == [20, 20, 20, 25, 25, 10]
     assert source.name == "Gmail (tester@gmail.com)"
+
+
+def test_한도에_걸리면_배치를_절반으로_줄인다():
+    """회귀: 50통 고정 배치는 동시 요청 한도에 걸려 다시 받기 5번 뒤에도 31통이 빠졌다."""
+    # given: 첫 배치(20통) 중 절반이 한 번 429
+    ids = [f"m{i}" for i in range(40)]
+    api = FakeApi(ids, page_size=500, errors={f"m{i}": [429] for i in range(0, 20, 2)})
+    source, _ = source_of(api)
+
+    # when
+    result = import_mails(source)
+
+    # then: 걸린 10통이 먼저 10통 배치로 다시 나감
+    assert len(result.mails) == 40
+    assert [len(b) for b in api.batches[:2]] == [20, 10]
+    assert api.batches[1] == [f"m{i}" for i in range(0, 20, 2)]
+
+
+def test_한도에_계속_걸리는_메일만_8번_뒤_포기하고_나머지는_받는다():
+    # given: m1은 계속 429
+    api = FakeApi(["m0", "m1", "m2"], errors={"m1": [429] * 20})
+    source, _ = source_of(api)
+
+    # when
+    result = import_mails(source)
+
+    # then
+    assert len(result.mails) == 2
+    assert [(s.origin, s.reason) for s in result.stats.skipped] == [
+        ("gmail:m1", "요청 한도 초과로 받지 못함")
+    ]
+    assert sum(b.count("m1") for b in api.batches) == 8
 
 
 def test_요청_한도_초과는_기다렸다가_다시_받는다():
@@ -249,7 +281,7 @@ def test_권한_오류인_403은_다시_받지_않는다():
 
 
 def test_배치_요청_사이에는_최소_1초_간격을_둔다():
-    # given: 120통 → 배치 3번, 각 배치는 시간이 걸리지 않음
+    # given: 120통, 각 배치는 시간이 걸리지 않음
     api = FakeApi([f"m{i}" for i in range(120)], page_size=500)
     source, t = source_of(api)
 
@@ -257,7 +289,7 @@ def test_배치_요청_사이에는_최소_1초_간격을_둔다():
     import_mails(source)
 
     # then
-    assert t.sleeps == [1.0, 1.0]
+    assert t.sleeps == [1.0] * (len(api.batches) - 1)
 
 
 def test_다시_받아도_안_되는_메일은_건너뛰고_기록한다():
