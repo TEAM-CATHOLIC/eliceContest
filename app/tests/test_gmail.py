@@ -92,9 +92,33 @@ def gmail_message(
 
 
 class HttpError(Exception):
-    def __init__(self, status: int):
+    """googleapiclient HttpError처럼 resp.status와 JSON content를 가진다."""
+
+    def __init__(self, status: int, reason: str | None = None):
         super().__init__(status)
         self.resp = type("Resp", (), {"status": status})()
+        errors = [{"reason": reason}] if reason else []
+        self.content = json.dumps({"error": {"code": status, "errors": errors}}).encode()
+
+
+class FakeTime:
+    """sleep하면 시계가 그만큼 간다. 실제로 기다리지 않는다."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def clock(self):
+        return self.now
+
+
+def source_of(api, **kwargs):
+    t = FakeTime()
+    return GmailMailSource(api, sleep=t.sleep, clock=t.clock, **kwargs), t
 
 
 class FakeApi:
@@ -119,9 +143,13 @@ class FakeApi:
         results = {}
         for message_id in ids:
             pending = self.errors.get(message_id)
-            results[message_id] = (
-                HttpError(pending.pop(0)) if pending else gmail_message(message_id)
-            )
+            if pending:
+                error = pending.pop(0)
+                results[message_id] = (
+                    HttpError(*error) if isinstance(error, tuple) else HttpError(error)
+                )
+            else:
+                results[message_id] = gmail_message(message_id)
         return results
 
 
@@ -168,7 +196,7 @@ def test_첨부는_본문_없이_조립되어_본문에_들어가지_않는다()
 def test_모든_페이지의_메일을_50통씩_나눠_받는다():
     # given: 120통, 목록 페이지는 50개씩
     api = FakeApi([f"m{i}" for i in range(120)], page_size=50)
-    source = GmailMailSource(api)
+    source, _ = source_of(api)
 
     # when
     result = import_mails(source)
@@ -182,16 +210,54 @@ def test_모든_페이지의_메일을_50통씩_나눠_받는다():
 def test_요청_한도_초과는_기다렸다가_다시_받는다():
     # given: m1은 429 두 번 뒤 성공
     api = FakeApi(["m0", "m1", "m2"], errors={"m1": [429, 429]})
-    waits = []
-    source = GmailMailSource(api, sleep=waits.append)
+    source, t = source_of(api)
+
+    # when
+    result = import_mails(source)
+
+    # then: 백오프 1초·2초 (배치 간격 1초는 이미 지나 추가 대기 없음)
+    assert len(result.mails) == 3
+    assert t.sleeps == [1, 2]
+    assert api.batches == [["m0", "m1", "m2"], ["m1"], ["m1"]]
+
+
+def test_요청이_몰려_받은_403_rateLimitExceeded도_다시_받는다():
+    """회귀: 실제 계정에서 두 번째 배치부터 403 rateLimitExceeded로 78통이 빠졌다."""
+    # given
+    api = FakeApi(["m0", "m1"], errors={"m1": [(403, "rateLimitExceeded")]})
+    source, _ = source_of(api)
 
     # when
     result = import_mails(source)
 
     # then
-    assert len(result.mails) == 3
-    assert waits == [1, 2]
-    assert api.batches == [["m0", "m1", "m2"], ["m1"], ["m1"]]
+    assert len(result.mails) == 2
+    assert result.stats.skipped == []
+
+
+def test_권한_오류인_403은_다시_받지_않는다():
+    # given: 이유가 요청 한도가 아닌 403
+    api = FakeApi(["m0", "m1"], errors={"m1": [(403, "forbidden")]})
+    source, _ = source_of(api)
+
+    # when
+    result = import_mails(source)
+
+    # then
+    assert len(result.mails) == 1
+    assert api.batches == [["m0", "m1"]]
+
+
+def test_배치_요청_사이에는_최소_1초_간격을_둔다():
+    # given: 120통 → 배치 3번, 각 배치는 시간이 걸리지 않음
+    api = FakeApi([f"m{i}" for i in range(120)], page_size=500)
+    source, t = source_of(api)
+
+    # when
+    import_mails(source)
+
+    # then
+    assert t.sleeps == [1.0, 1.0]
 
 
 def test_다시_받아도_안_되는_메일은_건너뛰고_기록한다():
@@ -199,7 +265,7 @@ def test_다시_받아도_안_되는_메일은_건너뛰고_기록한다():
     api = FakeApi(["m0", "m1", "m2"], errors={"m1": [404]})
 
     # when
-    result = import_mails(GmailMailSource(api, sleep=lambda s: None))
+    result = import_mails(source_of(api)[0])
 
     # then
     assert len(result.mails) == 2
@@ -212,7 +278,7 @@ def test_진행률은_받은_통수로_전체에서_끝난다():
     progress = []
 
     # when
-    import_mails(GmailMailSource(api), on_progress=lambda d, t: progress.append((d, t)))
+    import_mails(source_of(api)[0], on_progress=lambda d, t: progress.append((d, t)))
 
     # then
     assert progress[-1] == (5, 5)
@@ -268,7 +334,8 @@ class FakeGmailHttp:
         for content_id, message_id in zip(content_ids, message_ids, strict=True):
             pending = self.statuses.get(message_id)
             status = pending.pop(0) if pending else 200
-            payload = gmail_message(message_id) if status == 200 else {"error": {"code": status}}
+            error = {"code": status, "errors": [{"reason": "rateLimitExceeded"}]}
+            payload = gmail_message(message_id) if status == 200 else {"error": error}
             out += (
                 "--BATCH\r\nContent-Type: application/http\r\n"
                 f"Content-ID: <response-{content_id}>\r\n\r\n"
@@ -282,11 +349,11 @@ class FakeGmailHttp:
 
 def test_실제_Gmail_클라이언트의_배치_요청으로_메일을_받는다():
     """회귀: batch.add의 두 번째 위치 인자는 callback이라 ID를 넘기면 실행 중 터졌다."""
-    # given: 3통, m1은 한 번 429
-    api = GoogleGmailApi(http=FakeGmailHttp(["m0", "m1", "m2"], statuses={"m1": [429]}))
+    # given: 3통, m1은 한 번 403 rateLimitExceeded (실제 HttpError 파싱까지 거침)
+    api = GoogleGmailApi(http=FakeGmailHttp(["m0", "m1", "m2"], statuses={"m1": [403]}))
 
     # when
-    result = import_mails(GmailMailSource(api, sleep=lambda s: None))
+    result = import_mails(source_of(api)[0])
 
     # then
     assert sorted(m.id for m in result.mails) == [f"<m{i}@shop.example.com>" for i in range(3)]

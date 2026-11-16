@@ -38,6 +38,10 @@ BATCH_SIZE = 50
 """Gmail은 배치 하나에 50건 이하를 권장한다 (넘으면 요청 한도에 잘 걸림)."""
 MAX_RETRIES = 5
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+RATE_LIMIT_REASONS = {"ratelimitexceeded", "userratelimitexceeded"}
+"""Gmail은 요청이 몰리면 403에 이 이유를 담아 보낸다 (권한 오류 403과 구분해야 함)."""
+MIN_BATCH_INTERVAL = 1.0
+"""배치 요청 사이 최소 간격(초). 한도는 사용자당 초당 250단위, 메일 한 통 받기는 5단위 → 초당 50통."""
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 LOGIN_DONE_HTML = "로그인이 끝났습니다. 이 창을 닫고 계정 정리 AI 에이전트로 돌아가세요."
 
@@ -180,10 +184,33 @@ class GmailApi(Protocol):
         ...
 
 
-def http_status(error: Exception) -> int | None:
+def http_status(error: Exception | None) -> int | None:
     resp = getattr(error, "resp", None)
     status = getattr(resp, "status", None)
     return int(status) if status is not None else None
+
+
+def error_reasons(error: Exception | None) -> set[str]:
+    """Gmail 오류 응답 본문의 `error.errors[].reason` (소문자)."""
+    content = getattr(error, "content", b"") or b""
+    try:
+        body = json.loads(content.decode("utf-8") if isinstance(content, bytes) else content)
+    except (ValueError, UnicodeDecodeError):
+        return set()
+    details = body.get("error", {}) if isinstance(body, dict) else {}
+    return {
+        str(e.get("reason", "")).lower() for e in details.get("errors", []) if isinstance(e, dict)
+    }
+
+
+def is_retryable(error: Exception | None) -> bool:
+    """잠시 뒤 다시 하면 될 오류인가 (요청 한도 초과·서버 오류). 응답이 아예 없어도 다시 한다."""
+    if error is None:
+        return True
+    status = http_status(error)
+    if status in RETRYABLE_STATUS:
+        return True
+    return status == 403 and bool(error_reasons(error) & RATE_LIMIT_REASONS)
 
 
 class GoogleGmailApi:
@@ -270,12 +297,15 @@ class GmailMailSource(MailSource):
         max_messages: int | None = None,
         should_cancel: CancelCheck | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._api = api
         self._query = query
         self._max = max_messages
         self._should_cancel = should_cancel or (lambda: False)
         self._sleep = sleep
+        self._clock = clock
+        self._last_request: float | None = None
         self._ids: list[str] | None = None
         self._failures: list[tuple[str, str]] = []
         self.account = ""
@@ -309,18 +339,27 @@ class GmailMailSource(MailSource):
     def failures(self) -> list[tuple[str, str]]:
         return list(self._failures)
 
+    def _get_full_paced(self, ids: list[str]) -> dict[str, dict | Exception]:
+        """배치 요청 사이에 `MIN_BATCH_INTERVAL`을 둔다 (요청이 몰려 한도에 걸리지 않게)."""
+        if self._last_request is not None:
+            wait = MIN_BATCH_INTERVAL - (self._clock() - self._last_request)
+            if wait > 0:
+                self._sleep(wait)
+        self._last_request = self._clock()
+        return self._api.get_full(ids)
+
     def _fetch(self, ids: list[str]) -> dict[str, dict]:
         """한 배치를 받는다. 요청 한도 초과·서버 오류는 지수 백오프로 다시 시도한다."""
         pending, fetched = list(ids), {}
         for attempt in range(MAX_RETRIES + 1):
             self._check_cancel()
-            results = self._api.get_full(pending)
+            results = self._get_full_paced(pending)
             retry = []
             for message_id in pending:
                 result = results.get(message_id)
                 if isinstance(result, dict):
                     fetched[message_id] = result
-                elif http_status(result) in RETRYABLE_STATUS or result is None:
+                elif is_retryable(result):
                     retry.append(message_id)
                 else:
                     self._failures.append(
