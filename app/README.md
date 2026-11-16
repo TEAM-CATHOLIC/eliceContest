@@ -98,6 +98,18 @@ Settings → Project → Python Interpreter → Add Interpreter → **Existing**
 | 린트 검사 | `uv run ruff check .` |
 | 코드 자동 정리 | `uv run ruff format .` |
 | 다른 사람이 라이브러리를 추가한 뒤 pull 받았을 때 | `uv sync` |
+| 실행파일 빌드 (지금 OS용) | `uv run pyinstaller --noconfirm packaging/account_cleaner.spec` |
+| 빌드한 실행파일 점검 | `dist/AccountCleaner/AccountCleaner --self-test` (macOS: `dist/AccountCleaner.app/Contents/MacOS/AccountCleaner --self-test`) |
+
+### 실행파일 받기 (Mac·Windows)
+
+PyInstaller는 자기 OS용 실행파일만 만든다. Mac·Windows 실행파일은 GitHub Actions의 **Build** 워크플로가 만든다 (develop·main 푸시 때, 또는 Actions 탭에서 직접 실행).
+
+1. GitHub → Actions → Build → 최근 실행 → 아래쪽 **Artifacts**에서 `AccountCleaner-macos` 또는 `AccountCleaner-windows`를 받는다.
+2. 압축을 풀고 실행한다.
+   - **macOS:** 서명이 없어서 처음에는 막힌다. `AccountCleaner.app`을 **우클릭 → 열기**. 그래도 막히면 터미널에서 `xattr -cr AccountCleaner.app`을 실행한다. Apple Silicon(M1 이상)용이다.
+   - **Windows:** SmartScreen이 뜨면 **추가 정보 → 실행**. 폴더째 두고 `AccountCleaner.exe`를 실행한다 (exe만 꺼내면 안 됨).
+3. **Google Chrome이 설치되어 있어야 한다.** 없으면 앱이 시작할 때 안내한다.
 
 ## 4. 라이브러리 추가·삭제
 
@@ -121,8 +133,9 @@ app/
 ├── pyproject.toml      ← 프로젝트 정보, 라이브러리 목록
 ├── uv.lock             ← 라이브러리 정확한 버전 (직접 수정 금지)
 ├── .python-version     ← 3.12
+├── packaging/          ← PyInstaller 설정 (account_cleaner.spec)
 ├── src/account_cleaner/
-│   ├── main.py         ← 진입점
+│   ├── main.py         ← 진입점 (--self-test: 빌드 점검)
 │   ├── ui/             ← PySide6 화면
 │   ├── browser/        ← Playwright, 플레이북, 넘겨주기
 │   ├── mail/           ← MBOX/EML 파싱
@@ -135,6 +148,17 @@ app/
 
 - **실제 메일 파일(`.mbox`, `.eml`)과 SQLite 파일은 커밋하지 않는다.** `.gitignore`에 걸려 있지만, 테스트용 메일은 `app/data/` 아래에 두면 안전하다.
 - 브라우저 테스트는 **본인 계정으로 최종 탈퇴 버튼을 누르지 않는다** (PRD 5장).
+- **테스트 함수 이름은 한글로, 무엇을 보장하는지 문장으로 쓴다.** `test_` 접두사는 pytest가 찾기 위해 남긴다. 본문은 `# given`, `# when`, `# then` 주석으로 나눈다. 준비가 따로 없거나 실행과 확인이 붙어 있으면 `# given / when`, `# when / then`처럼 합친다.
+
+```python
+def test_비밀번호나_토큰_설정키는_저장을_거부한다(tmp_path):
+    # given
+    settings = AppSettings(tmp_path / "settings.ini")
+
+    # when / then
+    with pytest.raises(ValueError):
+        settings.set("naver/password", "x")
+```
 
 ---
 
