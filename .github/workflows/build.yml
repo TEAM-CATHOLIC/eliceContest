@@ -1,0 +1,94 @@
+name: Build
+
+# Mac·Windows 실행파일을 만들고, 만든 실행파일로 self-test(Qt·리소스·Playwright 드라이버·Chrome 실행)를 돌린다.
+# 결과물은 Actions 실행 페이지의 Artifacts에서 내려받는다.
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "app/packaging/**"
+      - "app/pyproject.toml"
+      - "app/uv.lock"
+      - "app/src/account_cleaner/main.py"
+      - "app/src/account_cleaner/core/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest   # Apple Silicon(arm64)
+            name: macos
+          - os: windows-latest
+            name: windows
+    defaults:
+      run:
+        working-directory: app
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: app/uv.lock
+
+      - name: 의존성 설치
+        run: uv sync --locked
+
+      - name: pytest
+        run: uv run pytest
+
+      - name: PyInstaller 빌드
+        run: uv run pyinstaller --noconfirm packaging/account_cleaner.spec
+
+      - name: self-test (macOS)
+        if: runner.os == 'macOS'
+        run: dist/AccountCleaner.app/Contents/MacOS/AccountCleaner --self-test --require-chrome --report self-test.txt
+
+      - name: self-test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # 창 모드 실행파일은 그냥 실행하면 기다리지 않으므로 Start-Process -Wait로 종료 코드를 받는다.
+        run: |
+          $p = Start-Process dist\AccountCleaner\AccountCleaner.exe -Wait -PassThru `
+            -ArgumentList '--self-test','--require-chrome','--report',"$PWD\self-test.txt"
+          exit $p.ExitCode
+
+      - name: self-test 결과
+        if: always()
+        shell: bash
+        run: cat self-test.txt || echo "보고서 없음"
+
+      - name: 압축 (macOS)
+        if: runner.os == 'macOS'
+        # ditto: .app 안의 심볼릭 링크·실행 권한을 그대로 보존한다
+        run: ditto -c -k --keepParent dist/AccountCleaner.app AccountCleaner-macos.zip
+
+      - name: 압축 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist\AccountCleaner -DestinationPath AccountCleaner-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AccountCleaner-${{ matrix.name }}
+          path: app/AccountCleaner-${{ matrix.name }}.zip
+          retention-days: 14
