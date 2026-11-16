@@ -189,12 +189,12 @@ def http_status(error: Exception) -> int | None:
 class GoogleGmailApi:
     """`google-api-python-client`로 구현. 디스커버리 문서는 패키지에 포함된 것을 쓴다 (네트워크 없음)."""
 
-    def __init__(self, credentials: Any) -> None:
+    def __init__(self, credentials: Any = None, http: Any = None) -> None:
+        """`http`는 테스트용 (가짜 HTTP 응답). 실제로는 `credentials`만 넘긴다."""
         from googleapiclient.discovery import build
 
-        self._service = build(
-            "gmail", "v1", credentials=credentials, static_discovery=True, cache_discovery=False
-        )
+        auth = {"http": http} if http is not None else {"credentials": credentials}
+        self._service = build("gmail", "v1", static_discovery=True, cache_discovery=False, **auth)
         self._messages = self._service.users().messages()
 
     def profile_email(self) -> str:
@@ -215,7 +215,8 @@ class GoogleGmailApi:
 
         batch = self._service.new_batch_http_request(callback=callback)
         for message_id in ids:
-            batch.add(self._messages.get(userId="me", id=message_id, format="full"), message_id)
+            request = self._messages.get(userId="me", id=message_id, format="full")
+            batch.add(request, request_id=message_id)  # 두 번째 위치 인자는 callback이다
         batch.execute()
         return results
 

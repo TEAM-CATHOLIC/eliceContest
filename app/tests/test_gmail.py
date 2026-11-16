@@ -2,15 +2,18 @@
 
 import base64
 import json
+import re
 import threading
 from datetime import UTC, datetime
 
+import httplib2
 import pytest
 
 from account_cleaner.mail import (
     GmailLoginError,
     GmailMailSource,
     GmailSetupError,
+    GoogleGmailApi,
     ImportCancelled,
     authorize,
     find_client_secret,
@@ -233,6 +236,61 @@ def test_목록을_받는_중에_취소하면_ImportCancelled():
     # when / then
     with pytest.raises(ImportCancelled):
         import_mails(source)
+
+
+# --- 실제 google-api-python-client 경로 (HTTP만 가짜) ---
+
+
+class FakeGmailHttp:
+    """Gmail REST 응답을 흉내 내는 httplib2 대용. 배치 요청은 multipart로 받아 multipart로 답한다."""
+
+    def __init__(self, ids, statuses=None):
+        self.ids = ids
+        self.statuses = {k: list(v) for k, v in (statuses or {}).items()}
+
+    @staticmethod
+    def _json(payload, status=200):
+        return httplib2.Response({"status": str(status)}), json.dumps(payload).encode()
+
+    def request(self, uri, method="GET", body=None, headers=None, **kwargs):
+        if uri.split("?")[0].rstrip("/").endswith("/batch") or "/batch/" in uri:
+            return self._batch(body if isinstance(body, str) else body.decode())
+        if uri.split("?")[0].endswith("/profile"):
+            return self._json({"emailAddress": "tester@gmail.com"})
+        if "/messages?" in uri or uri.split("?")[0].endswith("/messages"):
+            return self._json({"messages": [{"id": i} for i in self.ids]})
+        raise AssertionError(f"예상하지 못한 요청: {method} {uri}")
+
+    def _batch(self, body):
+        content_ids = re.findall(r"Content-ID: <(.+?)>", body)
+        message_ids = re.findall(r"/messages/([^/?\s]+)\?", body)
+        out = ""
+        for content_id, message_id in zip(content_ids, message_ids, strict=True):
+            pending = self.statuses.get(message_id)
+            status = pending.pop(0) if pending else 200
+            payload = gmail_message(message_id) if status == 200 else {"error": {"code": status}}
+            out += (
+                "--BATCH\r\nContent-Type: application/http\r\n"
+                f"Content-ID: <response-{content_id}>\r\n\r\n"
+                f"HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n\r\n"
+                f"{json.dumps(payload)}\r\n"
+            )
+        out += "--BATCH--"
+        headers = {"status": "200", "content-type": "multipart/mixed; boundary=BATCH"}
+        return httplib2.Response(headers), out.encode()
+
+
+def test_실제_Gmail_클라이언트의_배치_요청으로_메일을_받는다():
+    """회귀: batch.add의 두 번째 위치 인자는 callback이라 ID를 넘기면 실행 중 터졌다."""
+    # given: 3통, m1은 한 번 429
+    api = GoogleGmailApi(http=FakeGmailHttp(["m0", "m1", "m2"], statuses={"m1": [429]}))
+
+    # when
+    result = import_mails(GmailMailSource(api, sleep=lambda s: None))
+
+    # then
+    assert sorted(m.id for m in result.mails) == [f"<m{i}@shop.example.com>" for i in range(3)]
+    assert result.stats.skipped == []
 
 
 # --- 클라이언트 ID 파일 ---
