@@ -15,7 +15,9 @@ class AgentStatus(StrEnum):
     USER_TURN = "user_turn"
     """사용자가 직접 처리해야 함 — `resume()`까지 대기"""
     REACHED = "reached"
-    """탈퇴 화면 도달. 최종 버튼 앞에서 멈춘 상태 (종료 상태)"""
+    """탈퇴 화면 도달. 최종 버튼 앞에서 멈춘 상태 (종료 상태).
+    최종 버튼은 사용자가 누르므로, 이 이벤트를 보낸 뒤에도 브라우저는 사용자가 닫거나 `stop()`할 때까지
+    열려 있고 `run()`은 그때 이 이벤트를 돌려준다."""
     STOPPED = "stopped"
     """`stop()`으로 중단됨 (종료 상태)"""
     FAILED = "failed"
@@ -109,7 +111,8 @@ class WithdrawAgent(ABC):
         """탈퇴 화면까지 진행하고 마지막(종료 상태) 이벤트를 돌려준다.
 
         종료될 때까지 블로킹한다. `USER_TURN` 동안에는 `resume()` 또는 `stop()`을 기다린다.
-        마지막 이벤트도 `on_event`로 한 번 보낸다.
+        마지막 이벤트도 `on_event`로 한 번 보낸다. `REACHED`는 이벤트를 먼저 보내고, 사용자가 브라우저를
+        닫거나 `stop()`이 올 때까지 기다렸다가 돌려준다 (사용자가 최종 버튼을 누를 시간).
         """
 
     @abstractmethod

@@ -178,3 +178,40 @@ def test_전체_세션_지우기는_전용_프로필_폴더를_비운다(tmp_pat
     # then
     assert agent.profile_dir.is_dir()
     assert list(agent.profile_dir.iterdir()) == []
+
+
+class FakeContext:
+    def __init__(self, page):
+        self.pages = [page]
+
+
+class ClosablePage(FakePage):
+    """실제 페이지처럼 context와 닫힘 상태를 가진 가짜 페이지."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.closed = False
+        self.context = FakeContext(self)
+
+    def is_closed(self):
+        return self.closed
+
+
+def test_탈퇴_화면에_도착하면_사용자가_창을_닫을_때까지_브라우저를_열어_둔다(tmp_path):
+    """회귀: REACHED를 보내자마자 브라우저를 닫아 사용자가 최종 버튼을 누를 수 없었다."""
+    # given: 바로 탈퇴 화면인 페이지
+    page = ClosablePage(url="https://example.com/settings", visible={"main", TARGET})
+    agent = agent_with(page, tmp_path)
+    thread, events, done = run_in_thread(agent, PLAYBOOK)
+    wait_for(lambda: events and events[-1].status is AgentStatus.REACHED)
+
+    # when: 잠시 뒤 사용자가 창을 닫음
+    time.sleep(0.2)
+    still_open = thread.is_alive()
+    page.closed = True
+    thread.join(3)
+
+    # then
+    assert still_open
+    assert done["final"].status is AgentStatus.REACHED
+    assert [e.status for e in events].count(AgentStatus.REACHED) == 1

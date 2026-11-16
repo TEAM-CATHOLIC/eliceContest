@@ -55,6 +55,13 @@ def test_데모_사이트에서_로그인을_넘겨받고_재개하면_최종_�
 
     asyncio.run_coroutine_threadsafe(user_logs_in(), shared["loop"]).result(15)
     agent.resume()
+    deadline = time.monotonic() + 30
+    while not any(e.status is AgentStatus.REACHED for e in events):
+        assert time.monotonic() < deadline and worker.is_alive(), events
+        time.sleep(0.05)
+    time.sleep(0.5)
+    browser_kept_open = worker.is_alive()  # 사용자가 최종 버튼을 누를 수 있게 열려 있음
+    agent.stop()  # 사용자가 끝냄 (창 닫기와 같은 효과)
     worker.join(30)
 
     # then
@@ -62,3 +69,4 @@ def test_데모_사이트에서_로그인을_넘겨받고_재개하면_최종_�
     assert user_turn.reason is HandoffReason.LOGIN
     assert done["final"].status is AgentStatus.REACHED
     assert done["final"].url.endswith("/settings")
+    assert browser_kept_open

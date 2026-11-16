@@ -69,6 +69,8 @@ def main() -> int:
         def on_event(event: AgentEvent) -> None:
             step = f"[{event.step.index}/{event.step.total}] " if event.step else ""
             print(f"{event.status.value:>10}  {step}{event.message}")
+            if event.status is AgentStatus.REACHED:
+                print("  → 최종 버튼은 누르지 마세요(데모). Chrome 창을 닫으면 끝납니다.")
             if event.status is AgentStatus.USER_TURN:
                 # input()은 작업 스레드를 막으면 안 되므로 별도 스레드에서 기다렸다가 resume
                 def wait_enter() -> None:

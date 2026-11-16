@@ -156,7 +156,11 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
                 if result is None:
                     return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, "중단했습니다."))
                 if result.status is not EngineStatus.WAITING_FOR_USER:
-                    return self._finish(on_event, self._final_event(result, step_info))
+                    final = self._finish(on_event, self._final_event(result, step_info))
+                    if final.status is AgentStatus.REACHED:
+                        # 최종 버튼은 사용자가 누른다 → 사용자가 창을 닫을 때까지 브라우저를 열어 둔다
+                        await self._wait_until_closed(page)
+                    return final
                 reason = HANDOFF_REASONS.get(result.reason, HandoffReason.UNKNOWN)
                 # resume()이 USER_TURN 직후 바로 와도 놓치지 않도록 먼저 대기 상태로 둔다.
                 self._awaiting_user = True
@@ -188,6 +192,16 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
                 return None
             await asyncio.sleep(POLL_SECONDS)
         return task.result()
+
+    async def _wait_until_closed(self, page: Any) -> None:
+        """사용자가 Chrome 창을 모두 닫거나 `stop()`이 올 때까지 기다린다."""
+        context = getattr(page, "context", None)
+        if context is None:
+            return
+        while not self._stop.is_set():
+            if all(p.is_closed() for p in context.pages):
+                return
+            await asyncio.sleep(POLL_SECONDS)
 
     async def _wait_for_user(self) -> bool:
         """`resume()`이면 True, `stop()`이면 False."""
