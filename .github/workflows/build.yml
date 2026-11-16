@@ -14,6 +14,7 @@ on:
       - "app/uv.lock"
       - "app/src/account_cleaner/main.py"
       - "app/src/account_cleaner/core/**"
+      - "app/src/account_cleaner/mail/gmail.py"
       - ".github/workflows/build.yml"
   workflow_dispatch:
 
@@ -55,6 +56,20 @@ jobs:
 
       - name: pytest
         run: uv run pytest
+
+      # 배포 빌드에 Gmail 클라이언트 ID를 넣는다. 저장소에는 없고 GitHub secret에만 있다.
+      - name: Gmail 클라이언트 ID 넣기 (secret이 있을 때만)
+        shell: bash
+        env:
+          GOOGLE_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_CLIENT_SECRET_JSON }}
+        run: |
+          if [ -n "$GOOGLE_CLIENT_SECRET_JSON" ]; then
+            mkdir -p src/account_cleaner/resources
+            printf '%s' "$GOOGLE_CLIENT_SECRET_JSON" > src/account_cleaner/resources/google_client_secret.json
+            echo "Gmail 클라이언트 ID 포함"
+          else
+            echo "GOOGLE_CLIENT_SECRET_JSON 없음 - Gmail 연결 없이 빌드"
+          fi
 
       - name: PyInstaller 빌드
         run: uv run pyinstaller --noconfirm packaging/account_cleaner.spec

@@ -1,0 +1,286 @@
+"""Gmail 연결 테스트. 네트워크·실제 계정 없이 가짜 API 응답으로만 확인한다."""
+
+import base64
+import json
+import threading
+from datetime import UTC, datetime
+
+import pytest
+
+from account_cleaner.mail import (
+    GmailLoginError,
+    GmailMailSource,
+    GmailSetupError,
+    ImportCancelled,
+    authorize,
+    find_client_secret,
+    import_mails,
+    load_client_config,
+    parse_mail,
+)
+from account_cleaner.mail.gmail import CLIENT_SECRET_ENV, CLIENT_SECRET_FILE, message_to_bytes
+
+DESKTOP_CLIENT = {
+    "installed": {
+        "client_id": "test.apps.googleusercontent.com",
+        "client_secret": "not-a-real-secret",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": ["http://localhost"],
+    }
+}
+
+
+def b64(text: str) -> str:
+    return base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
+
+
+def gmail_message(
+    message_id: str, subject="가입을 환영합니다", sender="샘플쇼핑 <no-reply@shop.example.com>"
+):
+    """Gmail API `format=full` 응답 모양 (합성)."""
+    return {
+        "id": message_id,
+        "internalDate": "1794618000000",  # 2026-11-14 01:00:00 UTC
+        "payload": {
+            "mimeType": "multipart/mixed",
+            "headers": [
+                {"name": "From", "value": sender},
+                {"name": "Subject", "value": subject},
+                {"name": "Message-ID", "value": f"<{message_id}@shop.example.com>"},
+                {"name": "Content-Type", "value": 'multipart/mixed; boundary="X"'},
+            ],
+            "parts": [
+                {
+                    "mimeType": "multipart/alternative",
+                    "headers": [
+                        {"name": "Content-Type", "value": 'multipart/alternative; boundary="Y"'}
+                    ],
+                    "parts": [
+                        {
+                            "mimeType": "text/plain",
+                            "headers": [
+                                {"name": "Content-Type", "value": "text/plain; charset=UTF-8"},
+                                {"name": "Content-Transfer-Encoding", "value": "quoted-printable"},
+                            ],
+                            "body": {"data": b64("회원가입이 완료되었습니다.")},
+                        },
+                        {
+                            "mimeType": "text/html",
+                            "headers": [
+                                {"name": "Content-Type", "value": "text/html; charset=UTF-8"}
+                            ],
+                            "body": {"data": b64("<p>회원가입이 완료되었습니다.</p>")},
+                        },
+                    ],
+                },
+                {
+                    "mimeType": "application/pdf",
+                    "filename": "영수증.pdf",
+                    "headers": [
+                        {"name": "Content-Type", "value": 'application/pdf; name="r.pdf"'},
+                        {"name": "Content-Disposition", "value": 'attachment; filename="r.pdf"'},
+                    ],
+                    "body": {"attachmentId": "ATT1", "size": 120000},
+                },
+            ],
+        },
+    }
+
+
+class HttpError(Exception):
+    def __init__(self, status: int):
+        super().__init__(status)
+        self.resp = type("Resp", (), {"status": status})()
+
+
+class FakeApi:
+    """페이지 2개짜리 메일함. `errors`로 메시지별 실패를 순서대로 지정한다."""
+
+    def __init__(self, ids, errors=None, page_size=3):
+        self.ids = ids
+        self.errors = {k: list(v) for k, v in (errors or {}).items()}
+        self.page_size = page_size
+        self.batches: list[list[str]] = []
+
+    def profile_email(self):
+        return "tester@gmail.com"
+
+    def list_ids(self, page_token, query):
+        start = int(page_token or 0)
+        end = start + self.page_size
+        return self.ids[start:end], (str(end) if end < len(self.ids) else None)
+
+    def get_full(self, ids):
+        self.batches.append(list(ids))
+        results = {}
+        for message_id in ids:
+            pending = self.errors.get(message_id)
+            results[message_id] = (
+                HttpError(pending.pop(0)) if pending else gmail_message(message_id)
+            )
+        return results
+
+
+# --- format=full → 원문 ---
+
+
+def test_Gmail_응답을_원문으로_조립하면_공통_정규화를_그대로_거친다():
+    # given
+    message = gmail_message("m1")
+
+    # when
+    mail = parse_mail(message_to_bytes(message))
+
+    # then
+    assert mail.subject == "가입을 환영합니다"
+    assert mail.sender == "no-reply@shop.example.com"
+    assert mail.body_text == "회원가입이 완료되었습니다."
+    assert mail.id == "<m1@shop.example.com>"
+
+
+def test_Date_헤더가_없으면_Gmail_수신_시각을_쓴다():
+    # given: gmail_message에는 Date 헤더가 없음
+    message = gmail_message("m1")
+
+    # when
+    mail = parse_mail(message_to_bytes(message))
+
+    # then
+    assert mail.date == datetime(2026, 11, 14, 1, tzinfo=UTC)
+
+
+def test_첨부는_본문_없이_조립되어_본문에_들어가지_않는다():
+    # given
+    raw = message_to_bytes(gmail_message("m1"))
+
+    # when / then
+    assert b"ATT1" not in raw
+    assert "영수증" not in parse_mail(raw).body_text
+
+
+# --- 메일 소스 ---
+
+
+def test_모든_페이지의_메일을_50통씩_나눠_받는다():
+    # given: 120통, 목록 페이지는 50개씩
+    api = FakeApi([f"m{i}" for i in range(120)], page_size=50)
+    source = GmailMailSource(api)
+
+    # when
+    result = import_mails(source)
+
+    # then
+    assert len(result.mails) == 120
+    assert [len(b) for b in api.batches] == [50, 50, 20]
+    assert source.name == "Gmail (tester@gmail.com)"
+
+
+def test_요청_한도_초과는_기다렸다가_다시_받는다():
+    # given: m1은 429 두 번 뒤 성공
+    api = FakeApi(["m0", "m1", "m2"], errors={"m1": [429, 429]})
+    waits = []
+    source = GmailMailSource(api, sleep=waits.append)
+
+    # when
+    result = import_mails(source)
+
+    # then
+    assert len(result.mails) == 3
+    assert waits == [1, 2]
+    assert api.batches == [["m0", "m1", "m2"], ["m1"], ["m1"]]
+
+
+def test_다시_받아도_안_되는_메일은_건너뛰고_기록한다():
+    # given: m1은 사라진 메일(404)
+    api = FakeApi(["m0", "m1", "m2"], errors={"m1": [404]})
+
+    # when
+    result = import_mails(GmailMailSource(api, sleep=lambda s: None))
+
+    # then
+    assert len(result.mails) == 2
+    assert [(s.origin, s.reason) for s in result.stats.skipped] == [("gmail:m1", "받기 실패 (404)")]
+
+
+def test_진행률은_받은_통수로_전체에서_끝난다():
+    # given
+    api = FakeApi([f"m{i}" for i in range(5)])
+    progress = []
+
+    # when
+    import_mails(GmailMailSource(api), on_progress=lambda d, t: progress.append((d, t)))
+
+    # then
+    assert progress[-1] == (5, 5)
+
+
+def test_최대_통수를_정하면_그만큼만_받는다():
+    # given
+    api = FakeApi([f"m{i}" for i in range(10)])
+
+    # when
+    result = import_mails(GmailMailSource(api, max_messages=4))
+
+    # then
+    assert len(result.mails) == 4
+
+
+def test_목록을_받는_중에_취소하면_ImportCancelled():
+    # given
+    source = GmailMailSource(FakeApi(["m0"]), should_cancel=lambda: True)
+
+    # when / then
+    with pytest.raises(ImportCancelled):
+        import_mails(source)
+
+
+# --- 클라이언트 ID 파일 ---
+
+
+def test_클라이언트_ID_파일은_환경변수를_앱_데이터_폴더보다_먼저_찾는다(tmp_path):
+    # given: 두 곳 모두 파일이 있음
+    env_file = tmp_path / "from_env.json"
+    env_file.write_text("{}")
+    (tmp_path / CLIENT_SECRET_FILE).write_text("{}")
+
+    # when
+    found = find_client_secret(tmp_path, env={CLIENT_SECRET_ENV: str(env_file)})
+
+    # then
+    assert found == env_file
+
+
+def test_클라이언트_ID_파일이_어디에도_없으면_설정_안내_오류(tmp_path):
+    # given / when / then
+    with pytest.raises(GmailSetupError, match=CLIENT_SECRET_FILE):
+        find_client_secret(tmp_path / "empty", env={})
+
+
+def test_데스크톱_앱이_아닌_클라이언트_유형은_거부한다(tmp_path):
+    # given: 웹 애플리케이션 유형으로 만든 파일
+    path = tmp_path / "client.json"
+    path.write_text(json.dumps({"web": {}}))
+
+    # when / then
+    with pytest.raises(GmailSetupError, match="데스크톱 앱"):
+        load_client_config(path)
+
+
+# --- 로그인 ---
+
+
+def test_로그인을_기다리는_중에_취소하면_ImportCancelled():
+    # given: 브라우저를 열지 않고 로그인 대기, 0.3초 뒤 취소 요청
+    cancel = threading.Event()
+    threading.Timer(0.3, cancel.set).start()
+
+    # when / then
+    with pytest.raises(ImportCancelled):
+        authorize(DESKTOP_CLIENT, should_cancel=cancel.is_set, open_browser=False)
+
+
+def test_로그인_시간이_지나면_GmailLoginError():
+    # given / when / then
+    with pytest.raises(GmailLoginError, match="시간"):
+        authorize(DESKTOP_CLIENT, timeout_seconds=1, open_browser=False)
