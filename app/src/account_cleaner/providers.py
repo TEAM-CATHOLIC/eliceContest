@@ -54,6 +54,8 @@ def _mode(component: str) -> str:
 def _real(component: str) -> Any | None:
     module_name, attr = _REAL[component]
     module = importlib.import_module(module_name)
+    if component == "analyzer" and hasattr(module, "is_configured") and not module.is_configured():
+        return None
     return getattr(module, attr, None)
 
 

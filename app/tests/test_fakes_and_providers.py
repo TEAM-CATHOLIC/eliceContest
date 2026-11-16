@@ -217,6 +217,7 @@ class TestProviders:
 
         sentinel = FakeAnalyzer()
         monkeypatch.setattr(classifier, "create_analyzer", lambda: sentinel, raising=False)
+        monkeypatch.setattr(classifier, "is_configured", lambda: True)
         monkeypatch.delenv("ACCOUNT_CLEANER_FAKE", raising=False)
 
         # when

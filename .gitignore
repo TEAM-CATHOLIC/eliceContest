@@ -15,3 +15,9 @@ app/dist/
 app/data/
 *.sqlite3
 *.db
+
+# Private classifier data, review files and fitted parameters stay local.
+app/src/account_cleaner/classifier/artifacts/
+app/src/account_cleaner/classifier/private/
+app/classifier-artifacts/
+*.joblib
