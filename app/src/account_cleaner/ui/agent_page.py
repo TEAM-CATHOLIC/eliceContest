@@ -119,6 +119,8 @@ class AgentPage(QWidget):
         self._agent: WithdrawAgent | None = None
         self._task: BackgroundTask | None = None
         self._demo_server = None
+        self.current_domain: str | None = None
+        """후보 상세에서 시작한 안내일 때 그 후보의 도메인 (결과 기록용)"""
         self._relay = _EventRelay(self)
         self._relay.event.connect(self._on_event)
         self._build()

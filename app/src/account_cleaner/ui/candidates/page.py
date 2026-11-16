@@ -44,6 +44,8 @@ class SummaryCard(QFrame):
 class InventoryPage(QWidget):
     candidate_selected = Signal(object)
     """고른 `AccountCandidate` (선택이 없어지면 None)"""
+    status_changed = Signal(str, str, object)
+    """(도메인, 서비스명, `CandidateStatus`) — 저장소에 기록할 때 쓴다"""
     agent_requested = Signal(object)
     """상세 패널에서 'AI 에이전트로 탈퇴 진행'을 누른 `AccountCandidate`"""
 
@@ -130,6 +132,9 @@ class InventoryPage(QWidget):
 
     def set_status(self, domain: str, status: CandidateStatus) -> None:
         self.model.set_status(domain, status)
+        service = self.model.service_of(domain)
+        if service is not None:
+            self.status_changed.emit(domain, service, status)
         if self._selected is not None and self._selected.domain == domain:
             self.detail.set_status(status)
 
