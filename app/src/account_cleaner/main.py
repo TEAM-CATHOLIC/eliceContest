@@ -11,11 +11,13 @@ from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
 from account_cleaner.core.settings import AppSettings
+from account_cleaner.pipeline import ImportOutcome
 from account_cleaner.ui.agent_page import AgentPage
 from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
 from account_cleaner.ui.main_window import APP_TITLE, MainWindow, PageId
+from account_cleaner.ui.sources_page import SourcesPage
 from account_cleaner.ui.workers import BackgroundTask
 
 ORGANIZATION = "TEAM-CATHOLIC"
@@ -60,6 +62,15 @@ def warn_if_chrome_missing(parent: QWidget) -> None:
     )
 
 
+def show_import_result(
+    window: MainWindow, inventory: InventoryPage, outcome: ImportOutcome
+) -> None:
+    """메일 가져오기·분석이 끝나면 후보를 인벤토리에 채우고 그 화면으로 이동한다."""
+    inventory.set_candidates(outcome.candidates)
+    inventory.detail.set_mail_lookup(outcome.mail_lookup())
+    window.show_page(PageId.INVENTORY)
+
+
 def start_agent_for(
     window: MainWindow, inventory: InventoryPage, agent_page: AgentPage, candidate: AccountCandidate
 ) -> None:
@@ -100,6 +111,9 @@ def main() -> int:
     inventory.agent_requested.connect(
         lambda candidate: start_agent_for(window, inventory, agent_page, candidate)
     )
+    sources = SourcesPage(paths.root)
+    sources.import_finished.connect(lambda outcome: show_import_result(window, inventory, outcome))
+    window.set_page(PageId.SOURCES, sources)
     window.set_page(PageId.INVENTORY, inventory)
     window.set_page(PageId.AGENT, agent_page)
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
