@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from account_cleaner.contracts import is_secure_url
+
 FINAL_ACTION_PATTERNS = (
     r"\bdelete\s+(my\s+)?account\b",
     r"\bclose\s+(my\s+)?account\b",
@@ -29,7 +31,8 @@ class SafetyPolicy:
 
     def is_url_allowed(self, url: str) -> bool:
         parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"}:
+        # 계약과 같은 규칙: https만. 로컬 데모용 루프백(127.0.0.1·localhost)은 http도 허용
+        if not is_secure_url(url):
             return False
         host = self._normalize_host(parsed.hostname or "")
         return any(
