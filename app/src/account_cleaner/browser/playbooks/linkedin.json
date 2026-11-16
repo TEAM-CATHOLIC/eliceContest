@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "linkedin",
+  "service": "LinkedIn",
+  "domains": ["linkedin.com"],
+  "auth_domains": ["accounts.google.com", "appleid.apple.com"],
+  "login_methods": ["email", "google", "apple"],
+  "login_url": "https://www.linkedin.com/login",
+  "password_reset_url": "https://www.linkedin.com/checkpoint/rp/request-password-reset",
+  "withdraw_url": "https://www.linkedin.com/mypreferences/d/close-accounts",
+  "pre_withdraw_conditions": ["Premium 구독은 먼저 해지해야 합니다"],
+  "steps": [
+    {"action": "wait_for", "value": "main, [role='main']", "description": "계정 종료 설정 화면 로딩 대기"},
+    {
+      "action": "reach_target",
+      "value": "text=/Close account|계정 종료/i",
+      "fallback_texts": ["Close account", "계정 종료"],
+      "description": "계정 종료 안내 화면 확인 (비밀번호 입력·최종 종료 전 정지)"
+    }
+  ]
+}

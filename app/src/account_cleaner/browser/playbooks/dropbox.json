@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "dropbox",
+  "service": "Dropbox",
+  "domains": ["dropbox.com"],
+  "auth_domains": ["accounts.google.com", "appleid.apple.com"],
+  "login_methods": ["email", "google", "apple"],
+  "login_url": "https://www.dropbox.com/login",
+  "password_reset_url": "https://www.dropbox.com/forgot",
+  "withdraw_url": "https://www.dropbox.com/account/general",
+  "pre_withdraw_conditions": [
+    "유료 플랜은 먼저 해지해야 합니다",
+    "저장된 파일은 삭제되므로 먼저 내려받으세요"
+  ],
+  "steps": [
+    {"action": "wait_for", "value": "main, [role='main']", "description": "일반 계정 설정 화면 로딩 대기"},
+    {
+      "action": "reach_target",
+      "value": "text=/Delete account|계정 삭제/i",
+      "fallback_texts": ["Delete account", "계정 삭제"],
+      "description": "계정 삭제 진입점 확인 (최종 클릭 전 정지)"
+    }
+  ]
+}
