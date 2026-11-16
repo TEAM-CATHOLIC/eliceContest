@@ -70,3 +70,37 @@ def test_데모_사이트에서_로그인을_넘겨받고_재개하면_최종_�
     assert done["final"].status is AgentStatus.REACHED
     assert done["final"].url.endswith("/settings")
     assert browser_kept_open
+
+
+def test_사용자_차례에_실제_Chrome_창을_닫으면_오류_없이_중단으로_끝난다(
+    tmp_path, demo_site, caplog
+):
+    """회귀: 닫힌 창을 다시 닫다가 TargetClosedError가 나 ERROR 로그와 FAILED로 끝났다."""
+    # given: 로그인 화면에서 사용자 차례
+    shared = {}
+
+    @asynccontextmanager
+    async def opener(profile_dir):
+        async with open_chrome_page(profile_dir, headless=True) as page:
+            shared["page"], shared["loop"] = page, asyncio.get_running_loop()
+            yield page
+
+    agent = PlaywrightWithdrawAgent(tmp_path / "profile", page_opener=opener)
+    events, done = [], {}
+    worker = threading.Thread(
+        target=lambda: done.setdefault("final", agent.run(demo_playbook(demo_site), events.append))
+    )
+    worker.start()
+    deadline = time.monotonic() + 30
+    while not (events and events[-1].status is AgentStatus.USER_TURN):
+        assert time.monotonic() < deadline and worker.is_alive(), events
+        time.sleep(0.05)
+
+    # when: 사용자가 Chrome 창을 닫음
+    asyncio.run_coroutine_threadsafe(shared["page"].close(), shared["loop"]).result(15)
+    worker.join(30)
+
+    # then
+    assert done["final"].status is AgentStatus.STOPPED
+    assert "창을 닫아" in done["final"].message
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
