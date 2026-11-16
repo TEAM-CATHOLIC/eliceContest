@@ -1,8 +1,10 @@
 """실제 Gmail 계정으로 연결을 확인한다 (개발용). 메일 내용은 출력하지 않고 개수만 보여 준다.
 
     cd app
-    ACCOUNT_CLEANER_GOOGLE_CLIENT_SECRET=~/Downloads/client_secret_....json \\
-        uv run python scripts/gmail_check.py --max 200
+    uv run python scripts/gmail_check.py --max 200
+
+클라이언트 ID 파일은 앱과 같은 순서로 찾는다: 환경변수 ACCOUNT_CLEANER_GOOGLE_CLIENT_SECRET →
+앱 데이터 폴더의 google_client_secret.json.
 
 브라우저에서 테스트 사용자로 등록한 계정으로 로그인하고 "Gmail 메일 보기"를 체크한다.
 """
@@ -11,6 +13,9 @@ import argparse
 import time
 from collections import Counter
 
+from PySide6.QtCore import QCoreApplication
+
+from account_cleaner.core.paths import resolve_app_paths
 from account_cleaner.mail import (
     GmailError,
     GmailMailSource,
@@ -21,6 +26,7 @@ from account_cleaner.mail import (
     load_client_config,
     revoke,
 )
+from account_cleaner.main import APPLICATION, ORGANIZATION
 
 
 def main() -> int:
@@ -28,8 +34,14 @@ def main() -> int:
     parser.add_argument("--max", type=int, default=200, help="받을 최대 통수 (기본 200)")
     args = parser.parse_args()
 
+    # 앱과 같은 데이터 폴더를 쓰도록 앱 이름을 맞춘다
+    app = QCoreApplication([])
+    app.setOrganizationName(ORGANIZATION)
+    app.setApplicationName(APPLICATION)
+    root = resolve_app_paths().root
+
     try:
-        config = load_client_config(find_client_secret())
+        config = load_client_config(find_client_secret(root))
         print("브라우저에서 로그인하세요 (5분 안에)...")
         credentials = authorize(config)
     except GmailError as e:
