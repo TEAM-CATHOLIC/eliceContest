@@ -11,6 +11,7 @@ from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
 from account_cleaner.core.settings import AppSettings
 from account_cleaner.ui.agent_page import AgentPage
+from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
 from account_cleaner.ui.main_window import APP_TITLE, MainWindow, PageId
 from account_cleaner.ui.workers import BackgroundTask
@@ -78,6 +79,9 @@ def main() -> int:
     log.info("앱 시작 (데이터 폴더: %s)", paths.root)
 
     window = MainWindow(AppSettings(paths.settings_file))
+    inventory = InventoryPage()
+    window.top_bar.search_changed.connect(inventory.set_search)
+    window.set_page(PageId.INVENTORY, inventory)
     window.set_page(PageId.AGENT, AgentPage(paths.browser_profile))
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
     window.show()
