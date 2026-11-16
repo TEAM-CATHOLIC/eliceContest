@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "sample_shop",
+  "service": "샘플쇼핑",
+  "domains": ["shop.example.com"],
+  "auth_domains": ["kauth.kakao.com", "nid.naver.com"],
+  "login_methods": ["email", "kakao", "naver"],
+  "login_url": "https://shop.example.com/login",
+  "password_reset_url": "https://shop.example.com/account/find-password",
+  "withdraw_url": "https://shop.example.com/my/withdraw",
+  "pre_withdraw_conditions": ["적립금 잔액은 탈퇴 시 소멸됩니다", "유료 멤버십은 먼저 해지해야 합니다"],
+  "steps": []
+}

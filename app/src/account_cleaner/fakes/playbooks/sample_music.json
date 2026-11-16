@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "sample_music",
+  "service": "샘플뮤직",
+  "domains": ["music.example.net"],
+  "login_methods": ["email", "phone"],
+  "login_url": "https://music.example.net/member/login",
+  "password_reset_url": "https://music.example.net/member/reset",
+  "withdraw_url": "https://music.example.net/member/leave",
+  "pre_withdraw_conditions": ["이용권 자동 결제를 먼저 해지해야 합니다", "남은 이용 기간은 환불되지 않습니다"],
+  "steps": []
+}
