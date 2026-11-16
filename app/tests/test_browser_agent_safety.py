@@ -45,6 +45,18 @@ def test_http_https가_아닌_주소는_거부한다(policy):
     assert not policy.is_url_allowed("file:///etc/passwd")
 
 
+def test_서비스_도메인도_http는_거부하고_로컬_데모_주소만_예외로_허용한다(monkeypatch):
+    # given
+    monkeypatch.delenv("ACCOUNT_CLEANER_ALLOW_LOCAL_HTTP", raising=False)
+    policy = SafetyPolicy(("example.com", "127.0.0.1"))
+
+    # when / then
+    assert not policy.is_url_allowed("http://example.com/settings")
+    assert policy.is_url_allowed("http://127.0.0.1:8765/settings")
+    monkeypatch.setenv("ACCOUNT_CLEANER_ALLOW_LOCAL_HTTP", "0")
+    assert not policy.is_url_allowed("http://127.0.0.1:8765/settings")
+
+
 def test_인증_도메인은_https만_인정하고_서비스_도메인으로_보지_않는다():
     # given
     policy = SafetyPolicy(("example.com",), ("accounts.identity.test",))
@@ -125,6 +137,27 @@ def test_서비스_도메인과_인증_도메인이_겹치면_거부한다():
     # then
     assert not report.valid
     assert "auth_domain_overlap" in {i.code for i in report.issues}
+
+
+def test_최종_문구가_있는_메뉴_링크_단계는_오류_대신_확인_경고를_남긴다():
+    # given
+    playbook = Playbook(
+        "kr",
+        "국내 서비스",
+        "https://example.com/my",
+        ("example.com",),
+        (
+            Step(Action.CLICK, "a.leave", "탈퇴 메뉴", fallback_texts=("회원탈퇴",), menu=True),
+            Step(Action.REACH_TARGET, "main", "target"),
+        ),
+    )
+
+    # when
+    report = validate_playbook(playbook)
+
+    # then
+    assert report.valid
+    assert "menu_final_text" in {i.code for i in report.issues if i.severity == "warning"}
 
 
 # --- 민감정보·감사 로그·지표 ---

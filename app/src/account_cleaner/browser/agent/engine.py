@@ -9,6 +9,9 @@ from .models import Action, AgentResult, AgentStatus, Playbook, Step
 from .policy import PolicyViolation, SafetyPolicy
 from .redaction import redact_sensitive
 
+IS_LINK_SCRIPT = "e => e.tagName === 'A' || e.getAttribute('role') === 'link'"
+"""메뉴 클릭 단계의 요소가 링크인지 (최종 탈퇴는 보통 폼 제출 버튼이다)."""
+
 EventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
@@ -109,7 +112,11 @@ class BrowserAgent:
                 elif step.action == Action.CLICK:
                     locator = await self._click_locator(page, step)
                     text = await locator.inner_text(timeout=1500)
-                    self.policy.require_safe_click(step.value, text)
+                    if step.menu:
+                        is_link = await locator.evaluate(IS_LINK_SCRIPT)
+                        self.policy.require_safe_menu_click(step.value, text, bool(is_link))
+                    else:
+                        self.policy.require_safe_click(step.value, text)
                     await locator.click()
                 elif step.action == Action.WAIT_FOR:
                     await self._wait_for_locator(page, step)

@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from account_cleaner.contracts import is_secure_url
+
 FINAL_ACTION_PATTERNS = (
     r"\bdelete\s+(my\s+)?account\b",
     r"\bclose\s+(my\s+)?account\b",
@@ -29,7 +31,8 @@ class SafetyPolicy:
 
     def is_url_allowed(self, url: str) -> bool:
         parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"}:
+        # 계약과 같은 규칙: https만. 로컬 데모용 루프백(127.0.0.1·localhost)은 http도 허용
+        if not is_secure_url(url):
             return False
         host = self._normalize_host(parsed.hostname or "")
         return any(
@@ -63,3 +66,8 @@ class SafetyPolicy:
         candidate = f"{selector} {accessible_text}"
         if self.is_final_action(candidate):
             raise PolicyViolation("최종 탈퇴 동작은 에이전트가 실행할 수 없습니다")
+
+    def require_safe_menu_click(self, selector: str, accessible_text: str, is_link: bool) -> None:
+        """플레이북이 메뉴로 표시한 클릭. 링크면 최종 문구여도 허용, 링크가 아니면 일반 클릭과 같다."""
+        if not is_link:
+            self.require_safe_click(selector, accessible_text)

@@ -31,12 +31,17 @@ class FakeLocator:
     async def click(self):
         self.page.clicks.append(self.selector)
 
+    async def evaluate(self, script):
+        # 엔진은 링크 여부 확인에만 evaluate를 쓴다
+        return self.selector in self.page.links
+
 
 class FakePage:
-    def __init__(self, url="https://example.com/start", visible=None, texts=None):
+    def __init__(self, url="https://example.com/start", visible=None, texts=None, links=()):
         self.url = url
         self.visible = set(visible or ())
         self.texts = dict(texts or {})
+        self.links = set(links)
         self.clicks = []
         self.gotos = []
 
@@ -178,3 +183,56 @@ def test_이벤트에_담긴_이메일은_가려서_내보낸다():
 
     # then
     assert all("hong@gmail.com" not in str(event) for event in events)
+
+
+# --- 메뉴 링크 클릭 (한국 사이트의 "회원탈퇴" 메뉴) ---
+
+MENU = "a.leave"
+
+
+def test_메뉴로_표시한_회원탈퇴_링크는_클릭한다():
+    # given: 탈퇴 화면으로 가는 "회원탈퇴" 메뉴 링크
+    page = FakePage(visible={MENU}, texts={MENU: "회원탈퇴"}, links={MENU})
+    step = Step(Action.CLICK, MENU, "탈퇴 메뉴로 이동", menu=True)
+
+    # when
+    result = run_immediate(BrowserAgent(make_playbook(step)).run(page))
+
+    # then
+    assert page.clicks == [MENU]
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+
+
+def test_메뉴로_표시했어도_링크가_아닌_버튼이면_차단한다():
+    """메뉴 표시를 실수로 최종 버튼에 붙여도 버튼이면 누르지 않는다."""
+    # given: 같은 글자지만 버튼
+    page = FakePage(visible={"button.leave"}, texts={"button.leave": "회원탈퇴"})
+    step = Step(Action.CLICK, "button.leave", "잘못 표시한 최종 버튼", menu=True)
+
+    # when
+    result = run_immediate(BrowserAgent(make_playbook(step)).run(page))
+
+    # then
+    assert result.status is AgentStatus.BLOCKED
+    assert page.clicks == []
+
+
+def test_메뉴_표시가_없으면_링크여도_최종_문구_클릭은_차단한다():
+    # given
+    page = FakePage(visible={MENU}, texts={MENU: "회원탈퇴"}, links={MENU})
+
+    # when
+    result = run_immediate(BrowserAgent(make_playbook(Step(Action.CLICK, MENU))).run(page))
+
+    # then
+    assert result.status is AgentStatus.BLOCKED
+    assert page.clicks == []
+
+
+def test_플레이북의_menu_값을_읽는다():
+    # given / when
+    step = Step.from_dict({"action": "click", "value": MENU, "menu": True})
+
+    # then
+    assert step.menu
+    assert not Step.from_dict({"action": "click", "value": MENU}).menu

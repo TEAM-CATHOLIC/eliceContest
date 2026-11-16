@@ -74,14 +74,25 @@ def validate_playbook(playbook: Playbook) -> ValidationReport:
         if step.action == Action.CLICK:
             candidates = (step.value, *step.fallback_texts)
             if any(policy.is_final_action(candidate) for candidate in candidates):
-                issues.append(
-                    ValidationIssue(
-                        "error",
-                        "final_action_click",
-                        "최종 탈퇴 동작을 클릭 단계로 정의했습니다",
-                        index,
+                if step.menu:
+                    # 메뉴 링크로 표시한 단계: 실행 시 링크인지 확인하므로 사람이 확인하도록 경고만
+                    issues.append(
+                        ValidationIssue(
+                            "warning",
+                            "menu_final_text",
+                            "최종 탈퇴 문구가 있는 메뉴 링크입니다. 최종 버튼이 아닌지 확인하세요",
+                            index,
+                        )
                     )
-                )
+                else:
+                    issues.append(
+                        ValidationIssue(
+                            "error",
+                            "final_action_click",
+                            "최종 탈퇴 동작을 클릭 단계로 정의했습니다",
+                            index,
+                        )
+                    )
         if step.action == Action.REACH_TARGET:
             target_steps += 1
             if index != len(playbook.steps) - 1:

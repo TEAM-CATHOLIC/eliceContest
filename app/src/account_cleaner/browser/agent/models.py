@@ -28,6 +28,9 @@ class Step:
     value: str
     description: str = ""
     fallback_texts: tuple[str, ...] = ()
+    menu: bool = False
+    """탈퇴 화면으로 가는 메뉴 링크 (예: 한국 사이트의 "회원탈퇴" 메뉴). 글자가 최종 문구여도
+    링크(`<a>`, role=link)일 때만 클릭을 허용한다. 버튼이면 최종 버튼일 수 있어 그대로 차단."""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Step:
@@ -36,6 +39,7 @@ class Step:
             value=data["value"],
             description=data.get("description", ""),
             fallback_texts=tuple(data.get("fallback_texts", ())),
+            menu=bool(data.get("menu", False)),
         )
 
 
