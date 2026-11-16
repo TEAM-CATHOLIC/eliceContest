@@ -127,6 +127,27 @@ def test_서비스_도메인과_인증_도메인이_겹치면_거부한다():
     assert "auth_domain_overlap" in {i.code for i in report.issues}
 
 
+def test_최종_문구가_있는_메뉴_링크_단계는_오류_대신_확인_경고를_남긴다():
+    # given
+    playbook = Playbook(
+        "kr",
+        "국내 서비스",
+        "https://example.com/my",
+        ("example.com",),
+        (
+            Step(Action.CLICK, "a.leave", "탈퇴 메뉴", fallback_texts=("회원탈퇴",), menu=True),
+            Step(Action.REACH_TARGET, "main", "target"),
+        ),
+    )
+
+    # when
+    report = validate_playbook(playbook)
+
+    # then
+    assert report.valid
+    assert "menu_final_text" in {i.code for i in report.issues if i.severity == "warning"}
+
+
 # --- 민감정보·감사 로그·지표 ---
 
 

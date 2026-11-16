@@ -63,3 +63,8 @@ class SafetyPolicy:
         candidate = f"{selector} {accessible_text}"
         if self.is_final_action(candidate):
             raise PolicyViolation("최종 탈퇴 동작은 에이전트가 실행할 수 없습니다")
+
+    def require_safe_menu_click(self, selector: str, accessible_text: str, is_link: bool) -> None:
+        """플레이북이 메뉴로 표시한 클릭. 링크면 최종 문구여도 허용, 링크가 아니면 일반 클릭과 같다."""
+        if not is_link:
+            self.require_safe_click(selector, accessible_text)
