@@ -6,11 +6,13 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
+from account_cleaner.contracts import AccountCandidate
 from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
 from account_cleaner.core.settings import AppSettings
 from account_cleaner.ui.agent_page import AgentPage
+from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
 from account_cleaner.ui.main_window import APP_TITLE, MainWindow, PageId
@@ -58,6 +60,18 @@ def warn_if_chrome_missing(parent: QWidget) -> None:
     )
 
 
+def start_agent_for(
+    window: MainWindow, inventory: InventoryPage, agent_page: AgentPage, candidate: AccountCandidate
+) -> None:
+    """후보 상세의 'AI 에이전트로 탈퇴 진행' → 에이전트 화면으로 가서 그 서비스 안내 시작."""
+    playbook = agent_page.playbook_for_domain(candidate.domain)
+    if playbook is None:
+        return
+    window.show_page(PageId.AGENT)
+    if agent_page.start_for(playbook.id):
+        inventory.set_status(candidate.domain, CandidateStatus.IN_PROGRESS)
+
+
 def main() -> int:
     args = parse_args(sys.argv[1:])
     if args.self_test:
@@ -79,10 +93,15 @@ def main() -> int:
     log.info("앱 시작 (데이터 폴더: %s)", paths.root)
 
     window = MainWindow(AppSettings(paths.settings_file))
+    agent_page = AgentPage(paths.browser_profile)
     inventory = InventoryPage()
+    inventory.detail.set_playbook_lookup(agent_page.playbook_for_domain)
     window.top_bar.search_changed.connect(inventory.set_search)
+    inventory.agent_requested.connect(
+        lambda candidate: start_agent_for(window, inventory, agent_page, candidate)
+    )
     window.set_page(PageId.INVENTORY, inventory)
-    window.set_page(PageId.AGENT, AgentPage(paths.browser_profile))
+    window.set_page(PageId.AGENT, agent_page)
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
     window.show()
     QTimer.singleShot(0, lambda: warn_if_chrome_missing(window))

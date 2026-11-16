@@ -1,0 +1,216 @@
+"""후보 상세 패널 (#12, 디자인 초안 1번 오른쪽): 근거 메일, 신뢰도 설명, 사용자 확인, 다음 행동.
+
+근거 메일 내용은 `mail_lookup`(메일 ID → `ParsedMail`)으로 찾는다. 가져온 메일이 없으면 ID만 보인다.
+"""
+
+from collections import Counter
+from collections.abc import Callable
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from account_cleaner.contracts import (
+    AccountCandidate,
+    EvidenceType,
+    LoginMethod,
+    ParsedMail,
+    Playbook,
+)
+from account_cleaner.ui.candidates.model import CandidateStatus
+
+MailLookup = Callable[[str], ParsedMail | None]
+PlaybookLookup = Callable[[str], Playbook | None]
+
+PREVIEW_CHARS = 600
+LOGIN_METHOD_LABELS = {
+    LoginMethod.EMAIL: "이메일",
+    LoginMethod.PHONE: "휴대폰",
+    LoginMethod.GOOGLE: "구글",
+    LoginMethod.KAKAO: "카카오",
+    LoginMethod.NAVER: "네이버",
+    LoginMethod.APPLE: "애플",
+}
+REVIEW_BUTTONS = (
+    (CandidateStatus.CONFIRMED, "내 계정 맞아요"),
+    (CandidateStatus.EXCLUDED, "아니에요"),
+    (CandidateStatus.DEFERRED, "나중에"),
+)
+
+
+def explain_score(candidate: AccountCandidate) -> str:
+    """신뢰도를 만든 근거를 문장으로 (NF-03: 숫자만 보여 주지 않는다)."""
+    counts = Counter(e.type for e in candidate.evidence)
+    strongest: dict[EvidenceType, float] = {}
+    for e in candidate.evidence:
+        strongest[e.type] = max(strongest.get(e.type, 0.0), e.probability)
+    parts = [
+        f"{t.label} 메일 {counts[t]}통(최고 {round(strongest[t] * 100)}%)"
+        for t in sorted(counts, key=lambda t: (-counts[t], list(EvidenceType).index(t)))
+    ]
+    text = (
+        f"신뢰도 {round(candidate.score * 100)}% — " + ", ".join(parts) + "을 근거로 판단했습니다."
+    )
+    if candidate.has_deleted_evidence:
+        text += " 탈퇴 완료 메일이 있어 이미 탈퇴했을 가능성이 높습니다."
+    return text
+
+
+class CandidateDetailPanel(QWidget):
+    status_requested = Signal(str, object)
+    """(도메인, `CandidateStatus`) — 사용자가 확정·제외·보류를 눌렀다"""
+    agent_requested = Signal(object)
+    """`AccountCandidate` — AI 에이전트로 탈퇴 진행"""
+
+    def __init__(
+        self, mail_lookup: MailLookup | None = None, playbook_lookup: PlaybookLookup | None = None
+    ) -> None:
+        super().__init__()
+        self._mail_lookup = mail_lookup or (lambda _id: None)
+        self._playbook_lookup = playbook_lookup or (lambda _domain: None)
+        self._candidate: AccountCandidate | None = None
+        self._build()
+        self.show_candidate(None)
+
+    def set_mail_lookup(self, lookup: MailLookup) -> None:
+        self._mail_lookup = lookup
+
+    def set_playbook_lookup(self, lookup: PlaybookLookup) -> None:
+        self._playbook_lookup = lookup
+
+    def _build(self) -> None:
+        self.empty_label = QLabel("목록에서 후보를 고르면 근거와 상세가 여기에 보입니다.")
+        self.empty_label.setWordWrap(True)
+
+        self.title_label = QLabel()
+        self.title_label.setStyleSheet("font-size: 18px; font-weight: 700;")
+        self.status_label = QLabel()
+        self.status_label.setObjectName("statusBadge")
+        self.dates_label = QLabel()
+        self.login_label = QLabel()
+        self.score_label = QLabel()
+        self.score_label.setWordWrap(True)
+
+        self.evidence_list = QListWidget()
+        self.evidence_list.setObjectName("evidenceList")
+        self.evidence_list.currentItemChanged.connect(self._on_evidence_changed)
+        self.preview = QPlainTextEdit()
+        self.preview.setReadOnly(True)
+        self.preview.setPlaceholderText("근거 메일을 고르면 본문 앞부분이 보입니다.")
+        self.preview.setMaximumHeight(140)
+
+        self.review_buttons: dict[CandidateStatus, QPushButton] = {}
+        review = QHBoxLayout()
+        for status, text in REVIEW_BUTTONS:
+            button = QPushButton(text)
+            button.clicked.connect(lambda _=False, s=status: self._request_status(s))
+            self.review_buttons[status] = button
+            review.addWidget(button)
+
+        self.guide_button = QPushButton("로그인·복구 안내")
+        self.guide_button.setEnabled(False)
+        self.guide_button.setToolTip("준비 중 (#14)")
+        self.agent_button = QPushButton("AI 에이전트로 탈퇴 진행")
+        self.agent_button.clicked.connect(self._request_agent)
+        self.agent_hint = QLabel()
+        self.agent_hint.setWordWrap(True)
+        actions = QHBoxLayout()
+        actions.addWidget(self.guide_button)
+        actions.addWidget(self.agent_button)
+
+        self.content = QWidget()
+        body = QVBoxLayout(self.content)
+        body.setContentsMargins(0, 0, 0, 0)
+        for widget in (self.title_label, self.status_label, self.dates_label, self.login_label):
+            body.addWidget(widget)
+        body.addWidget(QLabel("신뢰도 설명"))
+        body.addWidget(self.score_label)
+        body.addWidget(QLabel("데이터 근거 (메일)"))
+        body.addWidget(self.evidence_list, 1)
+        body.addWidget(self.preview)
+        body.addWidget(QLabel("내 계정이 맞나요?"))
+        body.addLayout(review)
+        body.addLayout(actions)
+        body.addWidget(self.agent_hint)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.empty_label)
+        layout.addWidget(self.content, 1)
+
+    # --- 표시 ---
+
+    def show_candidate(
+        self, candidate: AccountCandidate | None, status: CandidateStatus | None = None
+    ) -> None:
+        self._candidate = candidate
+        self.empty_label.setVisible(candidate is None)
+        self.content.setVisible(candidate is not None)
+        if candidate is None:
+            return
+        self.title_label.setText(f"{candidate.service}   {candidate.domain}")
+        self.set_status(status or CandidateStatus.UNREVIEWED)
+        self.dates_label.setText(
+            f"처음 메일 {candidate.first_seen:%Y-%m-%d} · 마지막 메일 {candidate.last_seen:%Y-%m-%d}"
+        )
+        method = candidate.confirmed_login_method
+        self.login_label.setVisible(method is not None)
+        if method is not None:
+            self.login_label.setText(f"메일에 적힌 가입 방식: {LOGIN_METHOD_LABELS[method]}")
+        self.score_label.setText(explain_score(candidate))
+        self._fill_evidence(candidate)
+        playbook = self._playbook_lookup(candidate.domain)
+        self.agent_button.setEnabled(playbook is not None)
+        self.agent_hint.setText(
+            ""
+            if playbook
+            else "이 서비스는 아직 안내 플레이북이 없어 에이전트로 진행할 수 없습니다."
+        )
+
+    def set_status(self, status: CandidateStatus) -> None:
+        self.status_label.setText(f"상태: {status.label}")
+        for s, button in self.review_buttons.items():
+            button.setDown(False)
+            button.setEnabled(s is not status)
+
+    def _fill_evidence(self, candidate: AccountCandidate) -> None:
+        self.evidence_list.clear()
+        self.preview.clear()
+        for evidence in sorted(candidate.evidence, key=lambda e: -e.probability):
+            mail = self._mail_lookup(evidence.mail_id)
+            head = f"[{evidence.type.label}] {round(evidence.probability * 100)}%"
+            if mail is None:
+                text = f"{head} · 메일 {evidence.mail_id}"
+            else:
+                text = f"{head} · {mail.date:%Y-%m-%d} · {mail.subject}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, mail)
+            self.evidence_list.addItem(item)
+
+    def _on_evidence_changed(self, current: QListWidgetItem | None, _previous) -> None:
+        mail = current.data(Qt.ItemDataRole.UserRole) if current else None
+        if mail is None:
+            self.preview.setPlainText(
+                "가져온 메일에서 이 근거를 찾지 못했습니다." if current else ""
+            )
+            return
+        body = mail.body_text[:PREVIEW_CHARS]
+        more = "…" if len(mail.body_text) > PREVIEW_CHARS else ""
+        self.preview.setPlainText(f"보낸 사람: {mail.sender}\n제목: {mail.subject}\n\n{body}{more}")
+
+    # --- 요청 ---
+
+    def _request_status(self, status: CandidateStatus) -> None:
+        if self._candidate is not None:
+            self.status_requested.emit(self._candidate.domain, status)
+
+    def _request_agent(self) -> None:
+        if self._candidate is not None:
+            self.agent_requested.emit(self._candidate)

@@ -150,6 +150,17 @@ class TestFakeWithdrawAgent:
         t.join(2)
         assert events[-1].status is AgentStatus.STOPPED
 
+    def test_시작_직전에_온_stop도_무시하지_않고_중단한다(self, tmp_path, playbook):
+        # given
+        agent = FakeWithdrawAgent(tmp_path, step_delay=0)
+        agent.stop()
+
+        # when
+        final = agent.run(playbook, lambda e: None)
+
+        # then
+        assert final.status is AgentStatus.STOPPED
+
     def test_실패_단계를_지정하면_FAILED로_끝난다(self, tmp_path, playbook):
         # given
         agent = FakeWithdrawAgent(tmp_path, step_delay=0, fail_at_step=0)

@@ -32,9 +32,15 @@ class FakeWithdrawAgent(WithdrawAgent):
         self._awaiting_user = False
 
     def run(self, playbook: Playbook, on_event: EventCallback) -> AgentEvent:
-        self._resume.clear()
-        self._stop.clear()
-        self._awaiting_user = False
+        try:
+            return self._run_once(playbook, on_event)
+        finally:
+            # 시작할 때가 아니라 끝날 때 비운다 (시작 직전에 온 stop()을 잃지 않도록)
+            self._resume.clear()
+            self._stop.clear()
+            self._awaiting_user = False
+
+    def _run_once(self, playbook: Playbook, on_event: EventCallback) -> AgentEvent:
         login, menu, conditions = (
             AgentStep(i, len(STEP_TITLES), t) for i, t in enumerate(STEP_TITLES, start=1)
         )

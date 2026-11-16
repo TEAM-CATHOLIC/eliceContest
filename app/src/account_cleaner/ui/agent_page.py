@@ -248,6 +248,21 @@ class AgentPage(QWidget):
             return demo_playbook(self._demo_server.server_address[1])
         return self._playbooks[key]
 
+    def playbook_for_domain(self, domain: str) -> Playbook | None:
+        """계정 후보 도메인에 맞는 플레이북 (상세 패널의 'AI 에이전트로 탈퇴 진행' 활성화에 씀)."""
+        return next((p for p in self._playbooks.values() if p.matches_domain(domain)), None)
+
+    def start_for(self, playbook_id: str) -> bool:
+        """그 서비스를 골라 바로 안내를 시작한다. 이미 진행 중이면 False."""
+        if self.is_running():
+            return False
+        index = self.service_combo.findData(playbook_id)
+        if index < 0:
+            return False
+        self.service_combo.setCurrentIndex(index)
+        self.start()
+        return True
+
     def resume(self) -> None:
         if self._agent is not None:
             self.turn_box.hide()

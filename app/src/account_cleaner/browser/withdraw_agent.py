@@ -141,9 +141,17 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
     # --- 작업 스레드에서 호출 ---
 
     def run(self, playbook: Playbook, on_event: EventCallback) -> AgentEvent:
-        self._resume.clear()
-        self._stop.clear()
-        self._awaiting_user = False
+        try:
+            return self._run_once(playbook, on_event)
+        finally:
+            # 다음 실행을 위해 신호를 비운다. 시작할 때 비우면 시작 직전에 온 stop()을 잃는다.
+            self._resume.clear()
+            self._stop.clear()
+            self._awaiting_user = False
+
+    def _run_once(self, playbook: Playbook, on_event: EventCallback) -> AgentEvent:
+        if self._stop.is_set():  # 시작하기도 전에 중단됨
+            return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, STOPPED_MESSAGE))
         if self._open_page is open_chrome_page and find_chrome() is None:
             message = (
                 f"Google Chrome이 필요합니다. 설치 후 다시 시도해 주세요. {CHROME_DOWNLOAD_URL}"

@@ -1,6 +1,6 @@
 """계정 인벤토리 화면 (디자인 초안 1번): 요약 카드 + 필터 탭·정렬 + 후보 목록 + 오른쪽 상세 자리.
 
-상세 패널은 #12에서 채운다. 지금은 `set_detail_widget()`으로 바꿔 끼울 수 있는 자리표시만 둔다.
+목록에서 고르면 오른쪽 상세 패널(#12)에 근거와 확인 버튼이 보인다.
 """
 
 from PySide6.QtCore import QItemSelection, Signal
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner.contracts import AccountCandidate
+from account_cleaner.ui.candidates.detail import CandidateDetailPanel
 from account_cleaner.ui.candidates.model import (
     CandidateFilter,
     CandidateFilterProxy,
@@ -43,9 +44,12 @@ class SummaryCard(QFrame):
 class InventoryPage(QWidget):
     candidate_selected = Signal(object)
     """고른 `AccountCandidate` (선택이 없어지면 None)"""
+    agent_requested = Signal(object)
+    """상세 패널에서 'AI 에이전트로 탈퇴 진행'을 누른 `AccountCandidate`"""
 
     def __init__(self) -> None:
         super().__init__()
+        self._selected: AccountCandidate | None = None
         self.model = CandidateListModel(self)
         self.proxy = CandidateFilterProxy(self)
         self.proxy.setSourceModel(self.model)
@@ -97,14 +101,14 @@ class InventoryPage(QWidget):
         center.addWidget(self.empty_label)
         center.addWidget(self.list_view, 1)
 
-        self.detail_area = QVBoxLayout()
-        self._detail: QWidget = QLabel("목록에서 후보를 고르면 근거와 상세가 여기에 보입니다.")
-        self._detail.setWordWrap(True)
-        self.detail_area.addWidget(self._detail)
+        self.detail = CandidateDetailPanel()
+        self.detail.status_requested.connect(self.set_status)
+        self.detail.agent_requested.connect(self.agent_requested)
+        self.candidate_selected.connect(self._show_detail)
         detail_box = QFrame()
         detail_box.setObjectName("candidateDetail")
         detail_box.setFrameShape(QFrame.Shape.StyledPanel)
-        detail_box.setLayout(self.detail_area)
+        QVBoxLayout(detail_box).addWidget(self.detail)
 
         body = QHBoxLayout()
         body.addLayout(center, 3)
@@ -126,17 +130,12 @@ class InventoryPage(QWidget):
 
     def set_status(self, domain: str, status: CandidateStatus) -> None:
         self.model.set_status(domain, status)
+        if self._selected is not None and self._selected.domain == domain:
+            self.detail.set_status(status)
 
     def set_search(self, text: str) -> None:
         """위쪽 막대 검색창(`TopBar.search_changed`)과 연결한다."""
         self.proxy.set_search(text)
-
-    def set_detail_widget(self, widget: QWidget) -> None:
-        """오른쪽 상세 패널을 바꿔 끼운다 (#12)."""
-        self.detail_area.removeWidget(self._detail)
-        self._detail.deleteLater()
-        self._detail = widget
-        self.detail_area.addWidget(widget)
 
     def visible_candidates(self) -> list[AccountCandidate]:
         return [self.proxy.index(i, 0).data(Role.CANDIDATE) for i in range(self.proxy.rowCount())]
@@ -145,6 +144,11 @@ class InventoryPage(QWidget):
         self.list_view.setCurrentIndex(self.proxy.index(row, 0))
 
     # --- 내부 ---
+
+    def _show_detail(self, candidate: AccountCandidate | None) -> None:
+        self._selected = candidate
+        status = self.model.status_of(candidate.domain) if candidate else None
+        self.detail.show_candidate(candidate, status)
 
     def _on_selection(self, selected: QItemSelection, _deselected: QItemSelection) -> None:
         indexes = selected.indexes()

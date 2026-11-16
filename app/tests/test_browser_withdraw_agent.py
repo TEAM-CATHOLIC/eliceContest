@@ -232,3 +232,16 @@ def test_사용자_차례에_Chrome_창을_닫으면_중단으로_끝난다(tmp_
     # then
     assert done["final"].status is AgentStatus.STOPPED
     assert "창을 닫아" in done["final"].message
+
+
+def test_시작_직전에_온_stop도_무시하지_않고_중단한다(tmp_path):
+    """회귀: run()이 시작할 때 stop 신호를 비워, '안내 시작' 직후 누른 '중단'이 사라졌다."""
+    # given: 실행 전에 stop
+    agent = agent_with(FakePage(url="https://example.com/login", visible={PASSWORD}), tmp_path)
+    agent.stop()
+
+    # when
+    final = agent.run(PLAYBOOK, lambda e: None)
+
+    # then
+    assert final.status is AgentStatus.STOPPED
