@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "github",
+  "service": "GitHub",
+  "domains": ["github.com"],
+  "login_methods": ["email"],
+  "login_url": "https://github.com/login",
+  "password_reset_url": "https://github.com/password_reset",
+  "withdraw_url": "https://github.com/settings/admin",
+  "pre_withdraw_conditions": [
+    "소유한 저장소와 조직이 함께 삭제되거나 이전이 필요합니다",
+    "유료 플랜은 먼저 해지해야 합니다"
+  ],
+  "steps": [
+    {"action": "wait_for", "value": "main, [role='main']", "description": "계정 설정 화면 로딩 대기"},
+    {
+      "action": "reach_target",
+      "value": "text=/Delete account|Delete your account/i",
+      "fallback_texts": ["Delete account", "Delete your account"],
+      "description": "계정 삭제 구역 확인 (최종 클릭 전 정지)"
+    }
+  ]
+}

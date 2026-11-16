@@ -5,14 +5,16 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from account_cleaner import providers
+from account_cleaner.browser.withdraw_agent import PlaywrightWithdrawAgent
 from account_cleaner.contracts import (
     AgentStatus,
     AnalysisCancelled,
     EvidenceType,
     LoginMethod,
     ParsedMail,
+    load_playbooks,
 )
-from account_cleaner.fakes import FakeAnalyzer, FakeWithdrawAgent
+from account_cleaner.fakes import SAMPLE_PLAYBOOK_DIR, FakeAnalyzer, FakeWithdrawAgent
 
 T0 = datetime(2020, 1, 1, tzinfo=UTC)
 
@@ -108,7 +110,7 @@ def wait_for(cond, timeout=2.0):
 
 @pytest.fixture
 def playbook():
-    return providers.get_playbooks()["sample_shop"]
+    return load_playbooks(SAMPLE_PLAYBOOK_DIR)["sample_shop"]
 
 
 class TestFakeWithdrawAgent:
@@ -171,20 +173,35 @@ class TestFakeWithdrawAgent:
 
 
 class TestProviders:
-    def test_예시_플레이북_3개를_불러온다(self):
-        # given / when
+    def test_플레이북을_Fake로_지정하면_예시_플레이북_3개를_불러온다(self, monkeypatch):
+        # given
+        monkeypatch.setenv("ACCOUNT_CLEANER_FAKE", "playbooks")
+
+        # when
         playbooks = providers.get_playbooks()
 
         # then
         assert set(playbooks) == {"sample_shop", "sample_sns", "sample_music"}
 
-    def test_기본값이면_실제_구현이_없을_때_Fake를_쓴다(self, monkeypatch, tmp_path):
+    def test_기본값이면_브라우저_플레이북과_실제_에이전트를_쓴다(self, monkeypatch, tmp_path):
         # given
         monkeypatch.delenv("ACCOUNT_CLEANER_FAKE", raising=False)
 
+        # when
+        playbooks = providers.get_playbooks()
+        agent = providers.get_withdraw_agent(tmp_path)
+
+        # then
+        assert set(playbooks) == {"github", "dropbox", "linkedin"}
+        assert isinstance(agent, PlaywrightWithdrawAgent)
+
+    def test_기본값이면_모델이_설정되지_않은_분석기는_Fake를_쓴다(self, monkeypatch):
+        # given
+        monkeypatch.delenv("ACCOUNT_CLEANER_FAKE", raising=False)
+        monkeypatch.delenv("ACCOUNT_CLEANER_MODEL_DIR", raising=False)
+
         # when / then
         assert isinstance(providers.get_analyzer(), FakeAnalyzer)
-        assert isinstance(providers.get_withdraw_agent(tmp_path), FakeWithdrawAgent)
 
     def test_none이면_실제_구현이_없을_때_오류를_낸다(self, monkeypatch):
         # given
@@ -195,13 +212,14 @@ class TestProviders:
             providers.get_analyzer()
 
     def test_목록에_적은_것만_Fake를_쓴다(self, monkeypatch, tmp_path):
-        # given: 분석기만 Fake
-        monkeypatch.setenv("ACCOUNT_CLEANER_FAKE", "analyzer")
+        # given: 에이전트만 Fake, 분석기는 실제(모델 미설정)
+        monkeypatch.setenv("ACCOUNT_CLEANER_FAKE", "agent")
+        monkeypatch.delenv("ACCOUNT_CLEANER_MODEL_DIR", raising=False)
 
         # when / then
-        assert isinstance(providers.get_analyzer(), FakeAnalyzer)
+        assert isinstance(providers.get_withdraw_agent(tmp_path), FakeWithdrawAgent)
         with pytest.raises(providers.ProviderError):
-            providers.get_withdraw_agent(tmp_path)
+            providers.get_analyzer()
 
     def test_모르는_값이면_그_값을_알려주며_오류를_낸다(self, monkeypatch):
         # given: 오타
