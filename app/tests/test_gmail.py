@@ -402,7 +402,10 @@ def test_로그인을_기다리는_중에_취소하면_ImportCancelled():
 
     # when / then
     with pytest.raises(ImportCancelled):
-        authorize(DESKTOP_CLIENT, should_cancel=cancel.is_set, open_browser=False)
+        # 시간 제한을 짧게 둬서, 취소가 안 먹으면 5분 대신 10초 만에 GmailLoginError로 실패
+        authorize(
+            DESKTOP_CLIENT, should_cancel=cancel.is_set, open_browser=False, timeout_seconds=10
+        )
 
 
 def test_로그인_시간이_지나면_GmailLoginError():

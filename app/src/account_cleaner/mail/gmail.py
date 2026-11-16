@@ -97,17 +97,24 @@ def load_client_config(path: Path) -> dict:
 
 
 def _cancel_watcher(flow: Any, should_cancel: CancelCheck, done: threading.Event) -> None:
-    """로그인을 기다리는 동안 취소 요청이 오면 로컬 리디렉션 주소를 직접 불러 대기를 끝낸다."""
+    """로그인을 기다리는 동안 취소 요청이 오면 로컬 리디렉션 주소를 직접 불러 대기를 끝낸다.
+
+    `localhost` 대신 `127.0.0.1`로 부른다. 라이브러리가 가로채기 방지를 위해 IPv6 `::1`을 잡아만
+    두는데, macOS는 `localhost`를 `::1`로 먼저 찾아 요청이 서버에 닿지 않는다.
+    대기가 끝날 때까지(서버가 요청을 받을 때까지) 반복한다.
+    """
     while not done.wait(0.2):
         if not should_cancel():
             continue
         uri = getattr(flow, "redirect_uri", None)
-        if uri:
-            try:
-                urllib.request.urlopen(f"{uri}?error=access_denied", timeout=2).close()
-            except OSError:
-                pass
-        return
+        if not uri:
+            continue
+        port = urllib.parse.urlsplit(uri).port
+        try:
+            url = f"http://127.0.0.1:{port}/?error=access_denied"
+            urllib.request.urlopen(url, timeout=2).close()
+        except OSError:
+            pass
 
 
 def authorize(
