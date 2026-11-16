@@ -1,0 +1,107 @@
+"""AI 에이전트 정리 화면 테스트. 가짜 에이전트(브라우저 없음)로 화면 흐름만 확인한다."""
+
+import pytest
+
+from account_cleaner.contracts import AgentStatus, load_playbooks
+from account_cleaner.fakes import SAMPLE_PLAYBOOK_DIR, FakeWithdrawAgent
+from account_cleaner.ui.agent_page import FINAL_STEP_TITLE, AgentPage, StepList
+from account_cleaner.ui.workers import BackgroundTask
+
+
+@pytest.fixture
+def page(qtbot, tmp_path):
+    widget = AgentPage(
+        tmp_path / "profile",
+        agent_factory=lambda d: FakeWithdrawAgent(d, step_delay=0.01),
+        playbook_loader=lambda: load_playbooks(SAMPLE_PLAYBOOK_DIR),
+        include_demo=False,
+    )
+    qtbot.addWidget(widget)
+    widget.show()
+    yield widget
+    widget.stop()
+    BackgroundTask.shutdown_all()
+
+
+def test_서비스_목록에는_플레이북_서비스명이_보인다(page):
+    # given / when
+    names = [page.service_combo.itemText(i) for i in range(page.service_combo.count())]
+
+    # then
+    assert set(names) == {"샘플쇼핑", "샘플SNS", "샘플뮤직"}
+
+
+def test_시작하면_사용자_차례에서_안내와_계속_버튼이_보인다(qtbot, page):
+    # given / when
+    page.start()
+    qtbot.waitUntil(lambda: page.turn_box.isVisible(), timeout=3000)
+
+    # then
+    assert "로그인" in page.turn_label.text()
+    assert not page.start_button.isEnabled()
+    assert page.stop_button.isEnabled()
+    assert any(row.startswith("⏸") for row in page.steps.rows())
+
+
+def test_계속을_누르면_탈퇴_화면까지_가고_최종_단계만_사용자_몫으로_남는다(qtbot, page):
+    # given: 사용자 차례
+    page.start()
+    qtbot.waitUntil(lambda: page.turn_box.isVisible(), timeout=3000)
+
+    # when
+    with qtbot.waitSignal(page.run_finished, timeout=3000) as blocker:
+        page.resume_button.click()
+
+    # then
+    assert blocker.args[0].status is AgentStatus.REACHED
+    rows = page.steps.rows()
+    assert all(row.startswith("✓") for row in rows[:-1])
+    assert rows[-1] == f"▶  {FINAL_STEP_TITLE}"
+    assert "최종 버튼" in page.status_label.text()
+    qtbot.waitUntil(lambda: page.start_button.isEnabled(), timeout=3000)
+
+
+def test_중단하면_STOPPED로_끝나고_다시_시작할_수_있다(qtbot, page):
+    # given: 사용자 차례
+    page.start()
+    qtbot.waitUntil(lambda: page.turn_box.isVisible(), timeout=3000)
+
+    # when
+    with qtbot.waitSignal(page.run_finished, timeout=3000) as blocker:
+        page.stop_button.click()
+
+    # then
+    assert blocker.args[0].status is AgentStatus.STOPPED
+    qtbot.waitUntil(lambda: page.start_button.isEnabled(), timeout=3000)
+    assert not page.turn_box.isVisible()
+
+
+def test_진행_로그에는_에이전트_메시지가_시간순으로_쌓인다(qtbot, page):
+    # given / when
+    page.start()
+    qtbot.waitUntil(lambda: page.turn_box.isVisible(), timeout=3000)
+
+    # then
+    lines = page.log_lines()
+    assert "안내를 시작합니다" in lines[0]
+    assert any("로그인 페이지 여는 중" in line for line in lines)
+
+
+def test_단계_표시는_이벤트_전에는_최종_단계만_잠긴_채로_보인다():
+    # given / when
+    steps = StepList()
+
+    # then
+    assert steps.rows() == [f"🔒  {FINAL_STEP_TITLE}"]
+
+
+def test_취소하면_작업에_등록한_중단_함수를_바로_부른다(qtbot):
+    # given
+    called = []
+    task = BackgroundTask(lambda ctx: None, on_cancel=lambda: called.append(True))
+
+    # when
+    task.cancel()
+
+    # then
+    assert called == [True]

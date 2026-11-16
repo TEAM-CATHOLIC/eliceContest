@@ -97,6 +97,7 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
         self._open_page = page_opener or open_chrome_page
         self._resume = threading.Event()
         self._stop = threading.Event()
+        self._front = threading.Event()
         self._awaiting_user = False
 
     # --- UI 스레드에서 호출 ---
@@ -107,6 +108,21 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
 
     def stop(self) -> None:
         self._stop.set()
+
+    def bring_to_front(self) -> None:
+        self._front.set()
+
+    async def _sleep_and_serve(self, page: Any) -> None:
+        """대기 중에 UI 요청(창 앞으로 가져오기)을 처리한다. 실패해도 진행에는 영향 없음."""
+        if self._front.is_set():
+            self._front.clear()
+            raise_window = getattr(page, "bring_to_front", None)
+            if raise_window is not None:
+                try:
+                    await raise_window()
+                except Exception:  # 창이 이미 닫혔을 수 있음
+                    log.debug("창 앞으로 가져오기 실패", exc_info=True)
+        await asyncio.sleep(POLL_SECONDS)
 
     # --- 작업 스레드에서 호출 ---
 
@@ -173,7 +189,7 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
                         step=step_info(result.next_step),
                     )
                 )
-                if not await self._wait_for_user():
+                if not await self._wait_for_user(page):
                     return self._finish(on_event, AgentEvent(AgentStatus.STOPPED, "중단했습니다."))
                 start, navigate_entry = result.next_step, False
 
@@ -190,7 +206,7 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
                 except asyncio.CancelledError:
                     pass
                 return None
-            await asyncio.sleep(POLL_SECONDS)
+            await self._sleep_and_serve(page)
         return task.result()
 
     async def _wait_until_closed(self, page: Any) -> None:
@@ -201,15 +217,15 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
         while not self._stop.is_set():
             if all(p.is_closed() for p in context.pages):
                 return
-            await asyncio.sleep(POLL_SECONDS)
+            await self._sleep_and_serve(page)
 
-    async def _wait_for_user(self) -> bool:
+    async def _wait_for_user(self, page: Any) -> bool:
         """`resume()`이면 True, `stop()`이면 False."""
         try:
             while not self._resume.is_set():
                 if self._stop.is_set():
                     return False
-                await asyncio.sleep(POLL_SECONDS)
+                await self._sleep_and_serve(page)
             return True
         finally:
             self._awaiting_user = False

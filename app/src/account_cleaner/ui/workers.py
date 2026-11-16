@@ -101,10 +101,19 @@ class BackgroundTask(QObject):
 
     _active: ClassVar[set["BackgroundTask"]] = set()
 
-    def __init__(self, fn: Callable[[TaskContext], Any], name: str = "작업", parent=None):
+    def __init__(
+        self,
+        fn: Callable[[TaskContext], Any],
+        name: str = "작업",
+        parent=None,
+        on_cancel: Callable[[], None] | None = None,
+    ):
+        """`on_cancel`: 취소 요청 시 UI 스레드에서 바로 부를 함수. 작업 함수가 `ctx.cancelled`를
+        확인할 수 없는 블로킹 작업(예: 브라우저 에이전트 `run()`)을 멈출 때 쓴다 (`agent.stop`)."""
         super().__init__(parent)
         self.name = name
         self._fn = fn
+        self._on_cancel = on_cancel
         self._cancel = threading.Event()
         self._thread: QThread | None = None
         self._runner: _Runner | None = None
@@ -137,6 +146,8 @@ class BackgroundTask(QObject):
     def cancel(self) -> None:
         """취소를 요청한다. 작업 함수가 `ctx.cancelled`를 확인해야 실제로 멈춘다."""
         self._cancel.set()
+        if self._on_cancel is not None:
+            self._on_cancel()
 
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.isRunning()
