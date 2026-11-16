@@ -59,6 +59,7 @@ def main() -> int:
 
     print(f"\n가져온 메일 {len(result.mails)}통, {time.monotonic() - started:.1f}초")
     print(f"중복 {result.stats.duplicates}, 건너뜀 {len(result.stats.skipped)}")
+    print(f"한도에 걸려 다시 보냄 {source.rate_limited}번, 마지막 배치 크기 {source.batch_size}")
     print(f"발신 도메인 {len({m.sender_domain for m in result.mails})}종")
     print(f"본문이 빈 메일 {sum(1 for m in result.mails if not m.body_text)}통")
     reasons = Counter(s.reason for s in result.stats.skipped)
