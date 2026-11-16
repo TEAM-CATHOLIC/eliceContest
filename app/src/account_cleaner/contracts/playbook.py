@@ -1,6 +1,7 @@
 """플레이북 — 브라우저 담당이 서비스별 JSON으로 작성하고, 데스크톱(안내 화면)과 에이전트가 읽는다."""
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,26 @@ from urllib.parse import urlsplit
 from account_cleaner.contracts.login import LoginMethod
 
 SCHEMA_VERSION = 1
+LOCAL_HTTP_ENV = "ACCOUNT_CLEANER_ALLOW_LOCAL_HTTP"
+"""이 기기 안 주소(127.0.0.1, localhost)의 http 허용 여부. 기본은 허용(로컬 데모·테스트용).
+배포 빌드에서는 0으로 꺼서 https만 허용한다."""
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def local_http_allowed() -> bool:
+    return os.environ.get(LOCAL_HTTP_ENV, "1").strip().lower() not in ("0", "false", "no")
+
+
+def is_secure_url(url: str) -> bool:
+    """https이거나, 로컬 http가 허용된 상태에서 이 기기 안(루프백) 주소인지."""
+    parts = urlsplit(url)
+    if parts.scheme == "https":
+        return True
+    return (
+        parts.scheme == "http"
+        and (parts.hostname or "").lower() in LOOPBACK_HOSTS
+        and local_http_allowed()
+    )
 
 
 class PlaybookError(ValueError):
@@ -30,6 +51,8 @@ class Playbook:
 
     약속:
     - 모든 URL은 https이고, 호스트가 `domains`(또는 그 하위 도메인)에 속한다.
+      예외: 로컬 데모·테스트용 루프백 주소(127.0.0.1, localhost)는 http도 허용한다.
+      `ACCOUNT_CLEANER_ALLOW_LOCAL_HTTP=0`이면 이 예외를 끈다 (배포 환경).
     - 에이전트는 `domains`와 `auth_domains` 밖으로 이동하지 않는다 (PRD 5장 도메인 제한).
     - `auth_domains`는 소셜 로그인·본인인증용 외부 도메인이다. 이 도메인에서는 에이전트가
       조작하지 않고 사용자에게 넘긴다 (논의사항 D-02, 미확정).
@@ -53,7 +76,7 @@ class Playbook:
     def allows(self, url: str) -> bool:
         """에이전트가 `url`로 이동해도 되는지."""
         parts = urlsplit(url)
-        return parts.scheme == "https" and host_matches(
+        return is_secure_url(url) and host_matches(
             parts.hostname or "", self.domains + self.auth_domains
         )
 
@@ -92,7 +115,7 @@ class Playbook:
         for name in ("login_url", "password_reset_url", "withdraw_url"):
             url = getattr(pb, name)
             parts = urlsplit(url)
-            if parts.scheme != "https" or not host_matches(parts.hostname or "", pb.domains):
+            if not is_secure_url(url) or not host_matches(parts.hostname or "", pb.domains):
                 raise PlaybookError(f"{pb.id}: {name}는 domains 안의 https 주소여야 함: {url}")
         return pb
 

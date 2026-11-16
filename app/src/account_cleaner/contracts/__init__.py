@@ -27,14 +27,17 @@ from account_cleaner.contracts.analysis import (
 from account_cleaner.contracts.login import LoginMethod
 from account_cleaner.contracts.mail import ParsedMail
 from account_cleaner.contracts.playbook import (
+    LOCAL_HTTP_ENV,
     Playbook,
     PlaybookError,
     host_matches,
+    is_secure_url,
     load_playbook,
     load_playbooks,
 )
 
 __all__ = [
+    "LOCAL_HTTP_ENV",
     "AccountAnalyzer",
     "AccountCandidate",
     "AgentEvent",
@@ -53,6 +56,7 @@ __all__ = [
     "ProgressCallback",
     "WithdrawAgent",
     "host_matches",
+    "is_secure_url",
     "load_playbook",
     "load_playbooks",
 ]
