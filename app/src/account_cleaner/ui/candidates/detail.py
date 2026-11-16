@@ -25,6 +25,7 @@ from account_cleaner.contracts import (
     ParsedMail,
     Playbook,
 )
+from account_cleaner.ui.candidates.guide import UrlOpener, WithdrawGuideDialog, default_open_url
 from account_cleaner.ui.candidates.model import CandidateStatus
 
 MailLookup = Callable[[str], ParsedMail | None]
@@ -68,12 +69,18 @@ class CandidateDetailPanel(QWidget):
     status_requested = Signal(str, object)
     """(도메인, `CandidateStatus`) — 사용자가 확정·제외·보류를 눌렀다"""
     agent_requested = Signal(object)
-    """`AccountCandidate` — AI 에이전트로 탈퇴 진행"""
+    """`AccountCandidate` — 안내 창에서 탈퇴 전 조건을 모두 확인하고 AI 에이전트로 진행"""
 
     def __init__(
-        self, mail_lookup: MailLookup | None = None, playbook_lookup: PlaybookLookup | None = None
+        self,
+        mail_lookup: MailLookup | None = None,
+        playbook_lookup: PlaybookLookup | None = None,
+        open_url: UrlOpener = default_open_url,
     ) -> None:
         super().__init__()
+        self._open_url = open_url
+        self._playbook: Playbook | None = None
+        self.guide_dialog: WithdrawGuideDialog | None = None
         self._mail_lookup = mail_lookup or (lambda _id: None)
         self._playbook_lookup = playbook_lookup or (lambda _domain: None)
         self._candidate: AccountCandidate | None = None
@@ -116,10 +123,10 @@ class CandidateDetailPanel(QWidget):
             review.addWidget(button)
 
         self.guide_button = QPushButton("로그인·복구 안내")
-        self.guide_button.setEnabled(False)
-        self.guide_button.setToolTip("준비 중 (#14)")
+        self.guide_button.clicked.connect(self.open_guide)
+        # 에이전트 진행도 안내 창을 거쳐 탈퇴 전 조건을 확인한 뒤에만 시작한다 (F-07)
         self.agent_button = QPushButton("AI 에이전트로 탈퇴 진행")
-        self.agent_button.clicked.connect(self._request_agent)
+        self.agent_button.clicked.connect(self.open_guide)
         self.agent_hint = QLabel()
         self.agent_hint.setWordWrap(True)
         actions = QHBoxLayout()
@@ -166,12 +173,14 @@ class CandidateDetailPanel(QWidget):
             self.login_label.setText(f"메일에 적힌 가입 방식: {LOGIN_METHOD_LABELS[method]}")
         self.score_label.setText(explain_score(candidate))
         self._fill_evidence(candidate)
-        playbook = self._playbook_lookup(candidate.domain)
-        self.agent_button.setEnabled(playbook is not None)
+        self._playbook = self._playbook_lookup(candidate.domain)
+        self.guide_button.setEnabled(self._playbook is not None)
+        self.agent_button.setEnabled(self._playbook is not None)
         self.agent_hint.setText(
             ""
-            if playbook
-            else "이 서비스는 아직 안내 플레이북이 없어 에이전트로 진행할 수 없습니다."
+            if self._playbook
+            else "이 서비스는 아직 안내 정보(플레이북)가 없어 로그인·탈퇴 안내와 "
+            "에이전트 진행을 할 수 없습니다. 서비스 사이트의 고객센터에서 탈퇴 방법을 확인하세요."
         )
 
     def set_status(self, status: CandidateStatus) -> None:
@@ -211,6 +220,13 @@ class CandidateDetailPanel(QWidget):
         if self._candidate is not None:
             self.status_requested.emit(self._candidate.domain, status)
 
-    def _request_agent(self) -> None:
-        if self._candidate is not None:
-            self.agent_requested.emit(self._candidate)
+    def open_guide(self) -> None:
+        """로그인·복구·탈퇴 전 조건 안내 창. 조건을 모두 확인해야 에이전트 진행이 켜진다."""
+        if self._candidate is None or self._playbook is None:
+            return
+        if self.guide_dialog is not None:
+            self.guide_dialog.close()
+        dialog = WithdrawGuideDialog(self._candidate, self._playbook, self, open_url=self._open_url)
+        dialog.agent_requested.connect(self.agent_requested)
+        self.guide_dialog = dialog
+        dialog.open()

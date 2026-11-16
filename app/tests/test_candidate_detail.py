@@ -20,6 +20,8 @@ from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.workers import BackgroundTask
 
 T = datetime(2024, 3, 11, tzinfo=UTC)
+SAMPLE_PLAYBOOKS = load_playbooks(SAMPLE_PLAYBOOK_DIR)
+OPENED: list[str] = []
 MAIL = ParsedMail(
     "<m1@shop>", "no-reply@shop.example.com", "shop.example.com", "가입을 환영합니다", T,
     "샘플쇼핑 회원가입이 완료되었습니다. " * 50,
@@ -45,7 +47,10 @@ UNKNOWN = AccountCandidate(
 def panel(qtbot):
     widget = CandidateDetailPanel(
         mail_lookup={"<m1@shop>": MAIL}.get,
-        playbook_lookup=lambda domain: object() if domain == "shop.example.com" else None,
+        playbook_lookup=lambda domain: (
+            SAMPLE_PLAYBOOKS["sample_shop"] if domain == "shop.example.com" else None
+        ),
+        open_url=OPENED.append,
     )
     qtbot.addWidget(widget)
     widget.show()
@@ -117,7 +122,8 @@ def test_플레이북이_없는_서비스는_에이전트_버튼이_꺼지고_�
 
     # then
     assert not panel.agent_button.isEnabled()
-    assert "플레이북이 없어" in panel.agent_hint.text()
+    assert not panel.guide_button.isEnabled()
+    assert "안내 정보(플레이북)가 없어" in panel.agent_hint.text()
 
 
 def test_인벤토리에서_확정을_누르면_목록과_상세의_상태가_함께_바뀐다(qtbot):
@@ -158,3 +164,87 @@ def test_에이전트_화면은_후보_도메인에_맞는_플레이북을_찾�
     assert agent_page.playbook_for_domain("unknown.example.io") is None
     agent_page.stop()
     BackgroundTask.shutdown_all()
+
+
+# --- 로그인·복구·탈퇴 전 조건 안내 (#14) ---
+
+
+@pytest.fixture
+def guide(qtbot, panel):
+    OPENED.clear()
+    panel.show_candidate(SHOP)
+    panel.agent_button.click()
+    return panel.guide_dialog
+
+
+def test_에이전트_진행을_누르면_먼저_탈퇴_전_조건_안내_창이_열린다(guide):
+    # given / when: fixture에서 'AI 에이전트로 탈퇴 진행' 클릭
+
+    # then
+    assert guide is not None and guide.isVisible()
+    assert [b.text() for b in guide.condition_boxes] == [
+        "적립금 잔액은 탈퇴 시 소멸됩니다",
+        "유료 멤버십은 먼저 해지해야 합니다",
+        "탈퇴하면 계정과 데이터를 되돌릴 수 없다는 것을 확인했습니다",
+    ]
+
+
+def test_조건을_모두_확인하기_전에는_진행_버튼이_꺼져_있다(guide):
+    # given / when: 하나만 빼고 체크
+    for box in guide.condition_boxes[:-1]:
+        box.setChecked(True)
+
+    # then
+    assert not guide.proceed_button.isEnabled()
+    assert "1개가 남았습니다" in guide.proceed_hint.text()
+
+
+def test_조건을_모두_확인하고_진행하면_에이전트_요청이_간다(qtbot, panel, guide):
+    # given
+    for box in guide.condition_boxes:
+        box.setChecked(True)
+
+    # when
+    with qtbot.waitSignal(panel.agent_requested) as blocker:
+        guide.proceed_button.click()
+
+    # then
+    assert blocker.args[0] is SHOP
+
+
+def test_메일로_확인된_가입_방식은_로그인_방법_맨_앞에_표시한다(guide):
+    # given: 샘플쇼핑 플레이북은 이메일·카카오·네이버, 메일로 확인된 방식은 카카오
+
+    # when / then
+    assert guide.login_lines[0].startswith("카카오 로그인 — 메일에서")
+    assert guide.login_lines[1:] == ["이메일·비밀번호", "네이버 로그인"]
+
+
+def test_로그인_재설정_링크는_플레이북_주소를_기본_브라우저로_연다(guide):
+    # given / when
+    guide.login_button.click()
+    guide.reset_button.click()
+
+    # then
+    playbook = SAMPLE_PLAYBOOKS["sample_shop"]
+    assert OPENED == [playbook.login_url, playbook.password_reset_url]
+
+
+def test_조건이_없는_서비스도_되돌릴_수_없다는_확인은_받는다(qtbot):
+    # given: 탈퇴 전 조건이 비어 있는 플레이북
+    from dataclasses import replace
+
+    from PySide6.QtWidgets import QLabel
+
+    from account_cleaner.ui.candidates.guide import NO_CONDITIONS, WithdrawGuideDialog
+
+    playbook = replace(SAMPLE_PLAYBOOKS["sample_shop"], pre_withdraw_conditions=())
+
+    # when
+    dialog = WithdrawGuideDialog(SHOP, playbook, open_url=lambda u: None)
+    qtbot.addWidget(dialog)
+
+    # then
+    assert len(dialog.condition_boxes) == 1
+    assert not dialog.proceed_button.isEnabled()
+    assert any(label.text() == NO_CONDITIONS for label in dialog.findChildren(QLabel))
