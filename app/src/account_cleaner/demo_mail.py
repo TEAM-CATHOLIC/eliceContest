@@ -82,6 +82,10 @@ class DemoWindow(QMainWindow):
             buttons.addWidget(button)
         self.status = QLabel("1번을 눌러 시연용 가입 완료 메일 1통을 분석하세요.")
         self.status.setWordWrap(True)
+        self.model_info = QLabel(
+            "모델: 이 PC의 multilingual-e5-small + 로컬 분류 가중치 (v1) · 아직 불러오기 전"
+        )
+        self.model_info.setWordWrap(True)
         self.notification = QLabel("")
         self.notification.setObjectName("completionNotification")
         self.notification.setWordWrap(True)
@@ -94,6 +98,7 @@ class DemoWindow(QMainWindow):
             layout.addWidget(widget)
         layout.addLayout(buttons)
         layout.addWidget(self.status)
+        layout.addWidget(self.model_info)
         layout.addWidget(self.notification)
         layout.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
@@ -137,6 +142,9 @@ class DemoWindow(QMainWindow):
             self._analyze([self.session.usage_path], False)
 
     def _show_result(self, outcome, completion):
+        self.model_info.setText(
+            "모델 불러오기 완료: 이 PC의 E5 임베딩 + v1 분류 가중치 · 외부 AI API 호출 없음"
+        )
         candidates = [replace(c, service=SERVICE) for c in outcome.candidates if c.domain == DOMAIN]
         self.inventory.set_candidates(candidates)
         self.inventory.detail.set_mail_lookup(outcome.mail_lookup())

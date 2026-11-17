@@ -75,10 +75,11 @@ def start_site(session: DemoSession):
         def host_ok(self):
             return self.headers.get("Host") == f"127.0.0.1:{self.server.server_port}"
 
-        def page(self, body):
+        def page(self, body, refresh=False):
             content = (
                 "<!doctype html><html lang='ko'><meta charset='utf-8'><title>모아북 시연</title>"
-                "<style>body{font:17px/1.8 system-ui;background:#f1f5ef;color:#204235}"
+                + ("<meta http-equiv='refresh' content='1;url=/settings'>" if refresh else "")
+                + "<style>body{font:17px/1.8 system-ui;background:#f1f5ef;color:#204235}"
                 "main{max-width:700px;margin:55px auto;padding:35px;background:white;border-radius:15px}"
                 "button{font:inherit;padding:12px 22px;background:#176b50;color:white;border:0;"
                 "border-radius:7px;cursor:pointer}.tag{color:#b16416;font-weight:bold}</style>"
@@ -122,13 +123,20 @@ def start_site(session: DemoSession):
             if self.path == "/settings":
                 if not self.authenticated():
                     return self.redirect("/login")
+                ready = session.reached
                 return self.page(
-                    "<h1>모아북 계정 설정</h1><p>에이전트는 아래 버튼 앞에서 멈춥니다.</p>"
-                    "<p>사용자가 누르면 로컬 시연용 탈퇴 완료 메일 1통을 생성합니다. "
+                    "<h1>모아북 계정 설정</h1>"
+                    + (
+                        "<p>에이전트 도착 확인 완료. 이제 시연 버튼을 직접 누를 수 있습니다.</p>"
+                        if ready
+                        else "<p>에이전트가 도착을 확인 중입니다. 잠시 기다리면 버튼이 활성화됩니다.</p>"
+                    )
+                    + "<p>사용자가 누르면 로컬 시연용 탈퇴 완료 메일 1통을 생성합니다. "
                     "실제 계정과 데이터에는 아무 변화가 없습니다.</p>"
                     "<form method='post' action='/complete'>"
                     f"<input type='hidden' name='token' value='{session.token}'>"
-                    "<button>계정 영구 삭제 (시연용 메일 생성)</button></form>"
+                    f"<button {'disabled' if not ready else ''}>계정 영구 삭제 (시연용 메일 생성)</button></form>",
+                    refresh=not ready,
                 )
             if self.path == "/done" and self.authenticated():
                 return self.page(
@@ -156,7 +164,7 @@ def start_site(session: DemoSession):
                 try:
                     session.complete_by_user()
                 except ValueError:
-                    return self.send_error(409, "Wait for agent to reach the target")
+                    return self.redirect("/settings")
                 return self.redirect("/done")
             self.send_error(403)
 
