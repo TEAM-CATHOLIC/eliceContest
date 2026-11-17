@@ -167,6 +167,9 @@ class CandidateListModel(QAbstractListModel):
     def status_of(self, domain: str) -> CandidateStatus | None:
         return next((r.status for r in self._rows if r.candidate.domain == domain), None)
 
+    def service_of(self, domain: str) -> str | None:
+        return next((r.candidate.service for r in self._rows if r.candidate.domain == domain), None)
+
     def set_status(self, domain: str, status: CandidateStatus) -> None:
         for i, row in enumerate(self._rows):
             if row.candidate.domain == domain and row.status is not status:

@@ -6,12 +6,13 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
-from account_cleaner.contracts import AccountCandidate
+from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus
 from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
 from account_cleaner.core.settings import AppSettings
 from account_cleaner.pipeline import ImportOutcome
+from account_cleaner.storage import Database, StatusStore
 from account_cleaner.ui.agent_page import AgentPage
 from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
@@ -66,16 +67,29 @@ def warn_if_chrome_missing(parent: QWidget) -> None:
 
 
 def show_import_result(
-    window: MainWindow, inventory: InventoryPage, outcome: ImportOutcome
+    window: MainWindow,
+    inventory: InventoryPage,
+    outcome: ImportOutcome,
+    store: StatusStore | None = None,
 ) -> None:
-    """메일 가져오기·분석이 끝나면 후보를 인벤토리에 채우고 그 화면으로 이동한다."""
-    inventory.set_candidates(outcome.candidates)
+    """메일 가져오기·분석이 끝나면 후보를 인벤토리에 채우고 그 화면으로 이동한다.
+    전에 사용자가 정한 상태(확정·제외 등)가 저장돼 있으면 그대로 보여 준다."""
+    statuses = {}
+    if store is not None:
+        for domain, value in store.labels().items():
+            if value in CandidateStatus._value2member_map_:
+                statuses[domain] = CandidateStatus(value)
+    inventory.set_candidates(outcome.candidates, statuses)
     inventory.detail.set_mail_lookup(outcome.mail_lookup())
     window.show_page(PageId.INVENTORY)
 
 
 def start_agent_for(
-    window: MainWindow, inventory: InventoryPage, agent_page: AgentPage, candidate: AccountCandidate
+    window: MainWindow,
+    inventory: InventoryPage,
+    agent_page: AgentPage,
+    candidate: AccountCandidate,
+    store: StatusStore | None = None,
 ) -> None:
     """후보 상세의 'AI 에이전트로 탈퇴 진행' → 에이전트 화면으로 가서 그 서비스 안내 시작."""
     playbook = agent_page.playbook_for_domain(candidate.domain)
@@ -83,7 +97,19 @@ def start_agent_for(
         return
     window.show_page(PageId.AGENT)
     if agent_page.start_for(playbook.id):
+        agent_page.current_domain = candidate.domain  # 결과를 이 후보에 기록
         inventory.set_status(candidate.domain, CandidateStatus.IN_PROGRESS)
+        if store is not None:
+            store.agent_started(candidate.domain, candidate.service)
+
+
+def record_agent_result(agent_page: AgentPage, store: StatusStore, event: AgentEvent) -> None:
+    """후보에서 시작한 안내가 끝나면 결과를 기록한다 (탈퇴 화면 도착이면 재알림 예약)."""
+    domain = agent_page.current_domain
+    if domain is None:
+        return
+    store.agent_finished(domain, event.status.value, reached=event.status is AgentStatus.REACHED)
+    agent_page.current_domain = None
 
 
 def main() -> int:
@@ -107,15 +133,22 @@ def main() -> int:
     log.info("앱 시작 (데이터 폴더: %s)", paths.root)
 
     window = MainWindow(AppSettings(paths.settings_file))
+    store = StatusStore(Database(paths.database))
     agent_page = AgentPage(paths.browser_profile)
+    agent_page.run_finished.connect(lambda event: record_agent_result(agent_page, store, event))
     inventory = InventoryPage()
     inventory.detail.set_playbook_lookup(agent_page.playbook_for_domain)
     window.top_bar.search_changed.connect(inventory.set_search)
     inventory.agent_requested.connect(
-        lambda candidate: start_agent_for(window, inventory, agent_page, candidate)
+        lambda candidate: start_agent_for(window, inventory, agent_page, candidate, store)
     )
     sources = SourcesPage(paths.root)
-    sources.import_finished.connect(lambda outcome: show_import_result(window, inventory, outcome))
+    sources.import_finished.connect(
+        lambda outcome: show_import_result(window, inventory, outcome, store)
+    )
+    inventory.status_changed.connect(
+        lambda domain, service, status: store.set_label(domain, service, status.value)
+    )
     window.set_page(PageId.SOURCES, sources)
     window.set_page(PageId.INVENTORY, inventory)
     window.set_page(PageId.AGENT, agent_page)
