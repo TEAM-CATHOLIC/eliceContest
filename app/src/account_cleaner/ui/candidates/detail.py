@@ -139,9 +139,16 @@ class CandidateDetailPanel(QWidget):
         self.agent_button.clicked.connect(self.open_guide)
         self.agent_hint = QLabel()
         self.agent_hint.setWordWrap(True)
+        # 최종 탈퇴 버튼은 사용자가 누르므로 끝냈는지도 사용자가 알려 준다 → 로그인 세션 바로 삭제 (D-05)
+        self.done_button = QPushButton("탈퇴를 끝냈어요")
+        self.done_button.setToolTip(
+            "서비스에서 최종 탈퇴를 마쳤으면 눌러 주세요. 저장된 로그인도 지웁니다."
+        )
+        self.done_button.clicked.connect(lambda: self._request_status(CandidateStatus.DONE))
         actions = QHBoxLayout()
         actions.addWidget(self.guide_button)
         actions.addWidget(self.agent_button)
+        actions.addWidget(self.done_button)
 
         self.content = QWidget()
         body = QVBoxLayout(self.content)
@@ -195,6 +202,7 @@ class CandidateDetailPanel(QWidget):
 
     def set_status(self, status: CandidateStatus) -> None:
         self.status_label.setText(f"상태: {status.label}")
+        self.done_button.setVisible(status is CandidateStatus.IN_PROGRESS)
         for s, button in self.review_buttons.items():
             button.setDown(False)
             button.setEnabled(s is not status)

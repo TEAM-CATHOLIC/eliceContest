@@ -1,11 +1,13 @@
 import argparse
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
 
+from account_cleaner import providers
 from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus
 from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
@@ -25,6 +27,7 @@ from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
 from account_cleaner.ui.main_window import APP_TITLE, MainWindow, PageId
+from account_cleaner.ui.session_cleaner import SessionCleaner
 from account_cleaner.ui.sources_page import SourcesPage
 from account_cleaner.ui.workers import BackgroundTask
 
@@ -132,6 +135,55 @@ def open_inventory_store(db: Database, key_file: Path) -> tuple[InventoryStore, 
     return InventoryStore(db, key.cipher()), key
 
 
+CLEAR_LOGINS_QUESTION = (
+    "에이전트 전용 Chrome에 저장된 로그인을 모두 지울까요?\n\n"
+    "다음 안내 때 서비스마다 다시 로그인해야 합니다. 평소 쓰는 Chrome의 로그인은 그대로입니다."
+)
+
+
+def record_status(
+    store: StatusStore,
+    cleaner: SessionCleaner | None,
+    domain: str,
+    service: str,
+    status: CandidateStatus,
+) -> None:
+    """사용자 확인을 저장한다. '탈퇴를 끝냈어요'(완료)면 그 서비스 세션을 바로 지운다 (D-05)."""
+    store.set_label(domain, service, status.value)
+    if status is CandidateStatus.DONE:
+        store.mark_completed(domain)
+        if cleaner is not None:
+            cleaner.clear_due()
+
+
+def confirm_clear_logins(
+    window: QWidget,
+    cleaner: SessionCleaner,
+    ask: Callable[[QWidget, str], bool] | None = None,
+) -> bool:
+    """사이드바 '저장된 로그인 모두 지우기'. 확인을 받은 뒤에만 지운다."""
+    ask = ask or ask_yes_no
+    if not ask(window, CLEAR_LOGINS_QUESTION):
+        return False
+    return cleaner.clear_all()
+
+
+def ask_yes_no(parent: QWidget, text: str) -> bool:
+    answer = QMessageBox.question(
+        parent, "저장된 로그인 지우기", text, defaultButton=QMessageBox.StandardButton.No
+    )
+    return answer == QMessageBox.StandardButton.Yes
+
+
+def show_cleanup_result(window: MainWindow, domains: list[str]) -> None:
+    if domains == [SessionCleaner.ALL]:
+        window.statusBar().showMessage("저장된 로그인을 모두 지웠습니다.", 10_000)
+    else:
+        window.statusBar().showMessage(
+            f"탈퇴를 마쳤거나 오래된 로그인 {len(domains)}곳을 지웠습니다.", 10_000
+        )
+
+
 def encryption_status(key: LoadedKey | None) -> str:
     if key is None:
         return "미적용 (근거 메일 저장 안 함)"
@@ -195,6 +247,20 @@ def main() -> int:
     window.sidebar_footer.set_status(ENCRYPTION_STATUS, encryption_status(key))
     agent_page = AgentPage(paths.browser_profile)
     agent_page.run_finished.connect(lambda event: record_agent_result(agent_page, store, event))
+    cleaner = SessionCleaner(
+        store,
+        paths.browser_profile,
+        agent_factory=providers.get_withdraw_agent,
+        playbook_lookup=agent_page.playbook_for_domain,
+        agent_busy=agent_page.is_running,
+        parent=window,
+    )
+    agent_page.run_finished.connect(lambda _event: cleaner.retry_pending())
+    cleaner.cleared.connect(lambda domains: show_cleanup_result(window, domains))
+    cleaner.failed.connect(lambda text: window.statusBar().showMessage(text, 15_000))
+    window.sidebar_footer.clear_logins_requested.connect(
+        lambda: confirm_clear_logins(window, cleaner)
+    )
     inventory = InventoryPage()
     inventory.detail.set_playbook_lookup(agent_page.playbook_for_domain)
     window.top_bar.search_changed.connect(inventory.set_search)
@@ -208,7 +274,7 @@ def main() -> int:
     saved = inventory_store.load()
     restore_inventory(inventory, saved, store)
     inventory.status_changed.connect(
-        lambda domain, service, status: store.set_label(domain, service, status.value)
+        lambda domain, service, status: record_status(store, cleaner, domain, service, status)
     )
     window.set_page(PageId.SOURCES, sources)
     window.set_page(PageId.INVENTORY, inventory)
@@ -216,6 +282,7 @@ def main() -> int:
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
     window.show()
     QTimer.singleShot(0, lambda: warn_if_chrome_missing(window))
+    QTimer.singleShot(0, cleaner.clear_due)  # 보관 기한(14일)이 지난 세션
     if saved is not None and saved.mails_lost:
         QTimer.singleShot(0, lambda: QMessageBox.information(window, "근거 메일", MAILS_LOST_TEXT))
     if args.import_file:
