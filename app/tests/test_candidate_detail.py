@@ -67,9 +67,25 @@ def test_신뢰도는_어떤_근거_메일이_만들었는지_문장으로_설�
     assert "광고·초대 메일 1통(최고 60%)" in text
 
 
-def test_탈퇴_완료_메일이_있으면_이미_탈퇴했을_가능성을_알린다():
+def test_모델의_삭제추정은_탈퇴완료로_설명하지않는다():
     # given / when / then
-    assert "이미 탈퇴했을 가능성" in explain_score(UNKNOWN)
+    assert "모델의 추정" in explain_score(UNKNOWN)
+    assert "이미 탈퇴했을 가능성" not in explain_score(UNKNOWN)
+
+
+def test_명시적_삭제완료도_현재상태로_단정하지않는다():
+    candidate = AccountCandidate(
+        "샘플", "sample.example", 0.05, (Evidence("x", EvidenceType.DELETED, 1.0),), T, T
+    )
+    assert "과거 탈퇴 완료" in explain_score(candidate)
+    assert "재가입" in explain_score(candidate)
+
+
+def test_광고만있는_후보는_가입미확인으로_설명한다():
+    candidate = AccountCandidate(
+        "샘플", "sample.example", 0, (Evidence("x", EvidenceType.PROMO, 0.9),), T, T
+    )
+    assert "약한 흔적" in explain_score(candidate)
 
 
 def test_후보를_고르기_전에는_안내만_보인다(panel):

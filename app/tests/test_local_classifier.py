@@ -63,13 +63,39 @@ def test_개인메일없이_계약에_맞는_후보와_진행률을_돌려준다
     assert result[0].confirmed_login_method is None
 
 
-def test_중복아이디와_광고만있는_후보를_제외한다():
+def test_중복아이디를_제외하고_광고만있는_후보는_약한흔적으로_남긴다():
     # given / when
     a = analyzer({"1": ("signup", "unknown"), "2": ("promo", "unknown")})
     result = a.analyze([mail(1), mail(1), mail(2, domain="ads.example")])
     # then
-    assert len(result) == 1
+    assert len(result) == 2
     assert len(result[0].evidence) == 1
+    assert result[1].domain == "ads.example"
+    assert result[1].score == 0
+
+
+def test_공유발신자에서_서비스별로_구분하고_주소를_추측하지않는다():
+    first = resolve_service(
+        mail(1, subject="Google 계정 데이터 일부를 OpenAI에 공유하셨습니다", domain="google.com")
+    )
+    assert first == ("OpenAI", "openai.com")
+    assert resolve_service(mail(1, subject="보안 알림", domain="google.com")) == (
+        "Google",
+        "google.com",
+    )
+    a = resolve_service(mail(1, subject="[샘플A] 가입 안내", domain="cafe24shop.com"))
+    b = resolve_service(mail(2, subject="[샘플B] 가입 안내", domain="cafe24shop.com"))
+    assert a[0] == "샘플A" and a[1].endswith(".invalid")
+    assert a[1] != b[1]
+    assert resolve_service(mail(1, subject="[광고] 할인", domain="cafe24shop.com")) is None
+
+
+def test_모델의_삭제추정은_명시적인_탈퇴완료로_확정하지않는다():
+    result = analyzer({"1": ("signup", "unknown"), "2": ("deleted", "unknown")}).analyze(
+        [mail(1), mail(2)]
+    )[0]
+    assert result.score > 0.1
+    assert result.evidence[-1].probability < 1
 
 
 def test_빈입력과_취소를_지원한다():

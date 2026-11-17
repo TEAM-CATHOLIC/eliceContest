@@ -243,11 +243,13 @@ class SourcesPage(QWidget):
     def _start(self, opener: SourceOpener) -> None:
         if self.is_running():
             return
-        analyzer = self._analyzer_factory()
         relay = self._relay
 
         def job(ctx):
             try:
+                ctx.raise_if_cancelled()
+                analyzer = self._analyzer_factory()
+                ctx.raise_if_cancelled()
                 return run_pipeline(
                     opener,
                     analyzer,

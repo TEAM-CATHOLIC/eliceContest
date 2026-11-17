@@ -26,7 +26,7 @@ from account_cleaner.contracts import (
     Playbook,
 )
 from account_cleaner.ui.candidates.guide import UrlOpener, WithdrawGuideDialog, default_open_url
-from account_cleaner.ui.candidates.model import CandidateStatus
+from account_cleaner.ui.candidates.model import CandidateStatus, evidence_label
 
 MailLookup = Callable[[str], ParsedMail | None]
 PlaybookLookup = Callable[[str], Playbook | None]
@@ -50,18 +50,28 @@ REVIEW_BUTTONS = (
 def explain_score(candidate: AccountCandidate) -> str:
     """신뢰도를 만든 근거를 문장으로 (NF-03: 숫자만 보여 주지 않는다)."""
     counts = Counter(e.type for e in candidate.evidence)
-    strongest: dict[EvidenceType, float] = {}
+    labels = Counter(evidence_label(e) for e in candidate.evidence)
+    strongest: dict[str, float] = {}
     for e in candidate.evidence:
-        strongest[e.type] = max(strongest.get(e.type, 0.0), e.probability)
+        label = evidence_label(e)
+        strongest[label] = max(strongest.get(label, 0.0), e.probability)
     parts = [
-        f"{t.label} 메일 {counts[t]}통(최고 {round(strongest[t] * 100)}%)"
-        for t in sorted(counts, key=lambda t: (-counts[t], list(EvidenceType).index(t)))
+        f"{label} 메일 {n}통(최고 {round(strongest[label] * 100)}%)"
+        for label, n in labels.most_common()
     ]
     text = (
         f"신뢰도 {round(candidate.score * 100)}% — " + ", ".join(parts) + "을 근거로 판단했습니다."
     )
-    if candidate.has_deleted_evidence:
-        text += " 탈퇴 완료 메일이 있어 이미 탈퇴했을 가능성이 높습니다."
+    text += " 이 점수는 후보 정렬용이며 검증된 계정 존재 확률이 아닙니다."
+    deleted = [e for e in candidate.evidence if e.type is EvidenceType.DELETED]
+    if any(e.probability == 1.0 for e in deleted):
+        text += " 과거 탈퇴 완료 근거가 있습니다. 이후 재가입과 현재 상태는 확인이 필요합니다."
+    elif deleted:
+        text += " 삭제 유형은 모델의 추정입니다. 탈퇴 완료로 확인되지 않았으니 본문을 검토하세요."
+    if set(counts) == {EvidenceType.PROMO}:
+        text += " 광고·초대만 발견한 약한 흔적이며 가입 여부는 확인되지 않았습니다."
+    if candidate.domain.endswith(".invalid"):
+        text += " 서비스 이름만 발견했으며 실제 사이트 주소는 확인되지 않았습니다."
     return text
 
 
@@ -194,7 +204,8 @@ class CandidateDetailPanel(QWidget):
         self.preview.clear()
         for evidence in sorted(candidate.evidence, key=lambda e: -e.probability):
             mail = self._mail_lookup(evidence.mail_id)
-            head = f"[{evidence.type.label}] {round(evidence.probability * 100)}%"
+            label = evidence_label(evidence)
+            head = f"[{label}] {round(evidence.probability * 100)}%"
             if mail is None:
                 text = f"{head} · 메일 {evidence.mail_id}"
             else:

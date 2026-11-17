@@ -15,7 +15,7 @@ from PySide6.QtCore import (
     Qt,
 )
 
-from account_cleaner.contracts import AccountCandidate, EvidenceType
+from account_cleaner.contracts import AccountCandidate, Evidence, EvidenceType
 
 
 class CandidateStatus(StrEnum):
@@ -84,12 +84,17 @@ class CandidateSort(StrEnum):
         return {CandidateSort.SCORE: "신뢰도 높은 순", CandidateSort.RECENT: "최근 메일 순"}[self]
 
 
+def evidence_label(evidence: Evidence) -> str:
+    if evidence.type is EvidenceType.DELETED and evidence.probability < 1.0:
+        return "삭제 추정 · 검토 필요"
+    return evidence.type.label
+
+
 def evidence_summary(candidate: AccountCandidate, limit: int = 3) -> str:
     """대표 근거 유형과 개수. 예: "가입·인증 2 · 보안·복구 1" """
-    counts = Counter(e.type for e in candidate.evidence)
-    order = list(EvidenceType)
-    top = sorted(counts.items(), key=lambda kv: (-kv[1], order.index(kv[0])))[:limit]
-    return " · ".join(f"{t.label} {n}" for t, n in top)
+    counts = Counter(evidence_label(e) for e in candidate.evidence)
+    top = counts.most_common(limit)
+    return " · ".join(f"{label} {n}" for label, n in top)
 
 
 @dataclass
