@@ -107,6 +107,9 @@ def test_실제_브라우저는_최종버튼앞에서_멈추고_사용자역할_
             page = shared["page"]
             await page.get_by_role("button", name="시연 계정으로 계속").click()
             await page.wait_for_url("**/settings")
+            assert await page.get_by_role(
+                "button", name="계정 영구 삭제 (시연용 메일 생성)"
+            ).is_disabled()
 
         asyncio.run_coroutine_threadsafe(user_login(), shared["loop"]).result(15)
         agent.resume()
@@ -136,3 +139,34 @@ def test_실제_브라우저는_최종버튼앞에서_멈추고_사용자역할_
         server.shutdown()
         server.server_close()
     assert final["event"].status is AgentStatus.REACHED
+
+
+def test_도착전_성급한_완료요청은_오류화면대신_설정화면으로_돌아간다(tmp_path):
+    from http.client import HTTPConnection
+    from urllib.parse import urlencode
+
+    session = DemoSession(tmp_path)
+    session.start()
+    server, _playbook = start_site(session)
+    base = f"http://127.0.0.1:{server.server_port}"
+    client = HTTPConnection("127.0.0.1", server.server_port)
+    try:
+        client.request(
+            "POST",
+            "/complete",
+            urlencode({"token": session.token}),
+            {
+                "Origin": base,
+                "Cookie": f"demo_session={session.token}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        response = client.getresponse()
+        assert response.status == 303
+        assert response.getheader("Location") == "/settings"
+        assert not session.completion_path.exists()
+        response.read()
+    finally:
+        client.close()
+        server.shutdown()
+        server.server_close()
