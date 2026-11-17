@@ -53,6 +53,22 @@ def check_gmail() -> Check:
     return Check("gmail", certs.is_file(), f"discovery gmail.v1, certs={certs.name}")
 
 
+def check_keychain() -> Check:
+    """근거 메일 암호화 키를 둘 OS 키체인 백엔드가 묶였는지 (키를 쓰거나 읽지는 않는다).
+
+    macOS·Windows 배포본은 키체인이 꼭 있어야 하고, 리눅스는 없으면 키 파일로 대신한다.
+    """
+    import sys
+
+    from account_cleaner.storage.crypto import KeyringKeyStore, KeyStoreUnavailable
+
+    try:
+        backend = KeyringKeyStore()._backend()
+    except KeyStoreUnavailable as e:
+        return Check("keychain", not sys.platform.startswith(("darwin", "win")), str(e))
+    return Check("keychain", True, type(backend).__module__)
+
+
 def check_browser(require_chrome: bool) -> list[Check]:
     from playwright._impl._driver import compute_driver_executable
     from playwright.sync_api import sync_playwright
@@ -84,7 +100,12 @@ def check_browser(require_chrome: bool) -> list[Check]:
 
 def run_self_test(require_chrome: bool = False) -> list[Check]:
     checks: list[Check] = []
-    for name, fn in (("qt", check_qt), ("resources", check_resources), ("gmail", check_gmail)):
+    for name, fn in (
+        ("qt", check_qt),
+        ("resources", check_resources),
+        ("gmail", check_gmail),
+        ("keychain", check_keychain),
+    ):
         try:
             checks.append(fn())
         except Exception as e:  # noqa: BLE001 — 어떤 실패든 결과로 보고한다

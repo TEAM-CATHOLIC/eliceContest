@@ -22,6 +22,11 @@ class AppPaths:
         return self.root / "account_cleaner.sqlite3"
 
     @property
+    def key_file(self) -> Path:
+        """OS 키체인을 쓸 수 없을 때만 쓰는 근거 메일 암호화 키 파일 (#52)."""
+        return self.root / "evidence.key"
+
+    @property
     def browser_profile(self) -> Path:
         """에이전트 전용 Chrome 프로필 (PRD 5장). 사용자의 Chrome 프로필과 분리된다."""
         return self.root / "browser_profile"
