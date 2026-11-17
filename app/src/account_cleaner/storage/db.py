@@ -2,7 +2,7 @@
 
 - 연결은 스레드마다 따로 연다 (SQLite 연결은 스레드끼리 공유하지 않는다).
 - 스키마는 `MIGRATIONS` 순서대로 한 번씩만 적용한다. 새 테이블은 목록 끝에 추가한다.
-- 메일 본문·후보(#7)는 D-08(암호화·본문 보관) 결정 뒤에 다음 버전으로 추가한다.
+- 근거 메일의 보낸 사람·제목·본문 앞부분은 암호문(BLOB)으로만 저장한다 (`inventory`, D-08).
 """
 
 import sqlite3
@@ -38,6 +38,37 @@ MIGRATIONS: list[str] = [
     CREATE TABLE sessions (
         domain      TEXT PRIMARY KEY,
         kept_since  TEXT NOT NULL
+    );
+    """,
+    # 2: 마지막으로 가져온 계정 후보와 근거 메일 (#7, #52). 메일 본문 전체는 저장하지 않는다.
+    """
+    CREATE TABLE inventory_meta (
+        key    TEXT PRIMARY KEY,
+        value  TEXT NOT NULL
+    );
+    CREATE TABLE candidates (
+        domain        TEXT PRIMARY KEY,
+        position      INTEGER NOT NULL,
+        service       TEXT NOT NULL,
+        score         REAL NOT NULL,
+        first_seen    TEXT NOT NULL,
+        last_seen     TEXT NOT NULL,
+        login_method  TEXT
+    );
+    CREATE TABLE evidence (
+        domain       TEXT NOT NULL REFERENCES candidates(domain) ON DELETE CASCADE,
+        position     INTEGER NOT NULL,
+        mail_id      TEXT NOT NULL,
+        type         TEXT NOT NULL,
+        probability  REAL NOT NULL,
+        PRIMARY KEY (domain, position)
+    );
+    CREATE TABLE evidence_mails (
+        mail_id  TEXT PRIMARY KEY,
+        date     TEXT NOT NULL,
+        sender   BLOB NOT NULL,
+        subject  BLOB NOT NULL,
+        preview  BLOB NOT NULL
     );
     """,
 ]

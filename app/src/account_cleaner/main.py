@@ -12,7 +12,14 @@ from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
 from account_cleaner.core.settings import AppSettings
 from account_cleaner.pipeline import ImportOutcome
-from account_cleaner.storage import Database, StatusStore
+from account_cleaner.storage import Database, InventoryStore, SavedInventory, StatusStore
+from account_cleaner.storage.crypto import (
+    KeySource,
+    KeyStoreUnavailable,
+    LoadedKey,
+    default_key_stores,
+    load_or_create_key,
+)
 from account_cleaner.ui.agent_page import AgentPage
 from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
@@ -25,6 +32,12 @@ ORGANIZATION = "TEAM-CATHOLIC"
 APPLICATION = "AccountCleaner"
 
 log = logging.getLogger(__name__)
+
+ENCRYPTION_STATUS = "엔진 암호화"
+MAILS_LOST_TEXT = (
+    "암호화 키가 바뀌어 저장해 둔 근거 메일을 열 수 없어 지웠습니다. "
+    "계정 후보는 그대로 있습니다. 근거 메일 내용을 보려면 메일을 다시 불러오세요."
+)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -66,22 +79,65 @@ def warn_if_chrome_missing(parent: QWidget) -> None:
     )
 
 
+def saved_statuses(store: StatusStore | None) -> dict[str, CandidateStatus]:
+    """전에 사용자가 정한 상태(확정·제외 등)."""
+    if store is None:
+        return {}
+    return {
+        domain: CandidateStatus(value)
+        for domain, value in store.labels().items()
+        if value in CandidateStatus._value2member_map_
+    }
+
+
 def show_import_result(
     window: MainWindow,
     inventory: InventoryPage,
     outcome: ImportOutcome,
     store: StatusStore | None = None,
+    inventory_store: InventoryStore | None = None,
 ) -> None:
     """메일 가져오기·분석이 끝나면 후보를 인벤토리에 채우고 그 화면으로 이동한다.
-    전에 사용자가 정한 상태(확정·제외 등)가 저장돼 있으면 그대로 보여 준다."""
-    statuses = {}
-    if store is not None:
-        for domain, value in store.labels().items():
-            if value in CandidateStatus._value2member_map_:
-                statuses[domain] = CandidateStatus(value)
-    inventory.set_candidates(outcome.candidates, statuses)
+    후보와 근거 메일(암호화, 앞부분만)을 저장해 다음 실행 때 다시 보여 준다."""
+    inventory.set_candidates(outcome.candidates, saved_statuses(store))
     inventory.detail.set_mail_lookup(outcome.mail_lookup())
     window.show_page(PageId.INVENTORY)
+    if inventory_store is not None:
+        by_id = {m.id: m for m in outcome.mails}
+        count = inventory_store.save(outcome.source_name, outcome.candidates, by_id)
+        log.info("후보 %d개와 근거 메일 %d통 저장", len(outcome.candidates), count)
+
+
+def restore_inventory(
+    inventory: InventoryPage,
+    saved: SavedInventory | None,
+    store: StatusStore | None = None,
+) -> bool:
+    """지난번에 저장한 후보를 인벤토리에 채운다. 저장한 것이 없으면 False."""
+    if saved is None:
+        return False
+    inventory.set_candidates(saved.candidates, saved_statuses(store))
+    inventory.detail.set_mail_lookup(saved.mail_lookup())
+    return True
+
+
+def open_inventory_store(db: Database, key_file: Path) -> tuple[InventoryStore, LoadedKey | None]:
+    """근거 메일 암호화 키를 불러온다. 키를 둘 곳이 없으면 근거 메일 없이 후보만 저장한다."""
+    try:
+        key = load_or_create_key(default_key_stores(key_file))
+    except KeyStoreUnavailable:
+        log.warning("암호화 키를 둘 곳이 없어 근거 메일은 저장하지 않습니다")
+        return InventoryStore(db, cipher=None), None
+    log.info("근거 메일 암호화 키: %s%s", key.source.label, " (새로 만듦)" if key.created else "")
+    return InventoryStore(db, key.cipher()), key
+
+
+def encryption_status(key: LoadedKey | None) -> str:
+    if key is None:
+        return "미적용 (근거 메일 저장 안 함)"
+    if key.source is KeySource.FILE:
+        return "적용 (메일 근거, 키 파일)"
+    return "적용 (메일 근거)"
 
 
 def start_agent_for(
@@ -133,7 +189,10 @@ def main() -> int:
     log.info("앱 시작 (데이터 폴더: %s)", paths.root)
 
     window = MainWindow(AppSettings(paths.settings_file))
-    store = StatusStore(Database(paths.database))
+    database = Database(paths.database)
+    store = StatusStore(database)
+    inventory_store, key = open_inventory_store(database, paths.key_file)
+    window.sidebar_footer.set_status(ENCRYPTION_STATUS, encryption_status(key))
     agent_page = AgentPage(paths.browser_profile)
     agent_page.run_finished.connect(lambda event: record_agent_result(agent_page, store, event))
     inventory = InventoryPage()
@@ -144,8 +203,10 @@ def main() -> int:
     )
     sources = SourcesPage(paths.root)
     sources.import_finished.connect(
-        lambda outcome: show_import_result(window, inventory, outcome, store)
+        lambda outcome: show_import_result(window, inventory, outcome, store, inventory_store)
     )
+    saved = inventory_store.load()
+    restore_inventory(inventory, saved, store)
     inventory.status_changed.connect(
         lambda domain, service, status: store.set_label(domain, service, status.value)
     )
@@ -155,6 +216,8 @@ def main() -> int:
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
     window.show()
     QTimer.singleShot(0, lambda: warn_if_chrome_missing(window))
+    if saved is not None and saved.mails_lost:
+        QTimer.singleShot(0, lambda: QMessageBox.information(window, "근거 메일", MAILS_LOST_TEXT))
     if args.import_file:
         QTimer.singleShot(0, lambda: sources.start_files(args.import_file))
     return app.exec()
