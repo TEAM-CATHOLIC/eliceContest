@@ -1,0 +1,124 @@
+{
+  "recorded_on": "2026-11-17",
+  "base_model": {
+    "id": "intfloat/multilingual-e5-small",
+    "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "embedding_dimension": 384,
+    "frozen": true,
+    "max_tokens": 512,
+    "prefix": "query: "
+  },
+  "v1_in_demo": {
+    "eligible_records": 89,
+    "train_count": 66,
+    "test_count": 23,
+    "input_sha256": "f08bccdcf24f015b679939cae5006e9f0d4520e7c1107fffc0c4713c9063a050",
+    "weights_sha256": "0b5637bd21cccee89d97e7e2fa0912cb2cd482adb63d97777b304806e67bc33e",
+    "embedding_accuracy": 0.7391304347826086,
+    "embedding_macro_f1": 0.611111111111111,
+    "tfidf_accuracy": 0.6086956521739131,
+    "tfidf_macro_f1": 0.547008547008547,
+    "label_quality": "assistant drafts, not independent gold"
+  },
+  "v2_experimental": {
+    "total_records": 146,
+    "provenance": {
+      "human_verified": 20,
+      "assistant_draft_existing": 73,
+      "assistant_semantic_draft_tovnet": 53
+    },
+    "train_count": 113,
+    "test_count": 33,
+    "human_target_counts": {
+      "type_label": 16,
+      "stage_label": 17,
+      "relevance_label": 20
+    },
+    "ambiguous_targets_quarantined": 7,
+    "input_sha256": "ebf6611f854108035ddd2eedf3dccc99e5a3455cd7a7609d3355efa8706278be",
+    "weights_sha256": "acd11d02688a0c95d04c9f69855642e3e8612493502476016953a0f6bcf97db9",
+    "raw_metrics": {
+      "type": {
+        "train": 82,
+        "test": 25,
+        "accuracy": 0.8,
+        "macro_f1": 0.6393458393458393
+      },
+      "relevance": {
+        "train": 113,
+        "test": 33,
+        "accuracy": 0.8484848484848485,
+        "macro_f1": 0.7171497584541062
+      },
+      "stage": {
+        "train": 82,
+        "test": 26,
+        "accuracy": 0.6923076923076923,
+        "macro_f1": 0.4886724386724386
+      }
+    },
+    "post_policy_development_agreement": {
+      "type": {
+        "correct": 23,
+        "total": 25,
+        "agreement": 0.92
+      },
+      "stage": {
+        "correct": 18,
+        "total": 26,
+        "agreement": 0.6923076923076923
+      },
+      "relevance": {
+        "correct": 28,
+        "total": 33,
+        "agreement": 0.8484848484848485
+      }
+    },
+    "label_quality": "mostly assistant drafts; human labels also fallible; not independent gold"
+  },
+  "reproduction": {
+    "code": "app/src/account_cleaner/classifier/experiment.py",
+    "training_code_sha256": "e56a95a6c70a201183c5a48c6f77819ed23044d965ff2f846c9bd35160723772",
+    "python": "3.12.16",
+    "packages": {
+      "sentence-transformers": "6.3.0",
+      "scikit-learn": "1.9.1",
+      "torch": "2.15.0",
+      "transformers": "5.22.2"
+    },
+    "parameters": {
+      "class_weight": "balanced",
+      "C": 4.0,
+      "max_iter": 2000,
+      "random_state": 42
+    },
+    "identical_weights": true,
+    "max_coefficient_difference": {
+      "type": 0.0,
+      "relevance": 0.0,
+      "stage": 0.0
+    },
+    "head_shapes": {
+      "type": [
+        6,
+        384
+      ],
+      "relevance": [
+        4,
+        384
+      ],
+      "stage": [
+        6,
+        384
+      ]
+    }
+  },
+  "not_claimed": [
+    "LLM pretraining or language-model fine-tuning",
+    "9355 or 9444 messages used to train the model",
+    "92 percent verified real-world accuracy",
+    "validated phishing detection",
+    "synthetic demo proves real account deletion",
+    "Codex internal reasoning copied into a local model"
+  ]
+}
