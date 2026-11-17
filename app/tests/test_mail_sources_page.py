@@ -96,6 +96,23 @@ def test_소스를_닫는_정리_함수는_가져오기가_실패해도_부른�
 # --- 화면 ---
 
 
+def test_분류기_생성실패도_작업실패로_표시한다(qtbot, tmp_path, mbox):
+    import threading
+
+    called = []
+
+    def broken_factory():
+        called.append(threading.current_thread())
+        raise FileNotFoundError("missing model")
+
+    widget = SourcesPage(tmp_path, analyzer_factory=broken_factory)
+    qtbot.addWidget(widget)
+    widget.start_files([mbox])
+    qtbot.waitUntil(lambda: "FileNotFoundError" in widget.message_label.text(), timeout=3000)
+    qtbot.waitUntil(lambda: not widget.is_running(), timeout=3000)
+    assert called[0] is not threading.main_thread()
+
+
 @pytest.fixture
 def page(qtbot, tmp_path):
     widget = SourcesPage(tmp_path, analyzer_factory=FakeAnalyzer)

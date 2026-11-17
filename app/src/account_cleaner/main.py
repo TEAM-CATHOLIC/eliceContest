@@ -33,6 +33,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--require-chrome", action="store_true", help="Chrome이 없으면 실패")
     parser.add_argument("--report", type=Path, help="self-test 결과를 쓸 파일")
+    parser.add_argument(
+        "--import-file", type=Path, nargs="+", help="실행 후 로컬 메일 파일 가져오기"
+    )
     # macOS가 붙이는 -psn_* 같은 인자와 Qt 인자는 무시한다.
     args, _ = parser.parse_known_args(argv)
     return args
@@ -119,6 +122,8 @@ def main() -> int:
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
     window.show()
     QTimer.singleShot(0, lambda: warn_if_chrome_missing(window))
+    if args.import_file:
+        QTimer.singleShot(0, lambda: sources.start_files(args.import_file))
     return app.exec()
 
 

@@ -11,37 +11,7 @@ from account_cleaner.contracts import (
 )
 
 from .model import Predictor
-
-ALIASES = {
-    "kakaocorp.com": ("카카오", "kakao.com"),
-    "updates.notion.so": ("Notion", "notion.so"),
-    "mail.notion.so": ("Notion", "notion.so"),
-    "e.coupang.com": ("쿠팡", "coupang.com"),
-    "mail.kakaobank.com": ("카카오뱅크", "kakaobank.com"),
-    "mgdirectmail.binance.com": ("Binance", "binance.com"),
-}
-SHARED_SENDERS = {
-    "cafe24shop.com",
-    "easypay.co.kr",
-    "tosspayments.com",
-    "bill-mail.tosspayments.com",
-    "inicis.com",
-}
-
-
-def resolve_service(mail):
-    domain = mail.sender_domain.lower()
-    text = mail.subject + " " + mail.body_text[:500]
-    # Shared processors are not the merchant account. Only resolve reviewed cases.
-    if domain in SHARED_SENDERS:
-        if "제로투히어로" in text:
-            return "제로투히어로", "zerotohero.co.kr"
-        if domain == "cafe24shop.com" and "르아르" in text:
-            return "르아르", "leire.co.kr"
-        return None
-    if domain == "kakaocorp.com" and "카카오디벨로퍼스" in text:
-        return "카카오디벨로퍼스", "developers.kakao.com"
-    return ALIASES.get(domain, (domain, domain))
+from .services import resolve_service
 
 
 class LocalAccountAnalyzer(AccountAnalyzer):
@@ -67,15 +37,17 @@ class LocalAccountAnalyzer(AccountAnalyzer):
                 groups[service].append((mail, pred))
         candidates = []
         for (service, domain), items in groups.items():
-            # No candidate based solely on unsolicited advertising/invitations.
-            if all(p["type"] == "promo" for _, p in items):
-                continue
             items.sort(key=lambda pair: pair[0].date)
             evidence = tuple(
                 Evidence(
                     m.id,
                     EvidenceType(p["type"]),
-                    1.0 if p["decision_source"] == "rule" else p["classification_score"],
+                    1.0
+                    if p["type"] == "deleted"
+                    and p["stage_hint"] == "account_deleted_completed"
+                    or p["decision_source"] == "rule"
+                    and p["type"] != "deleted"
+                    else min(p["classification_score"], 0.99),
                 )
                 for m, p in items
             )
@@ -92,7 +64,12 @@ class LocalAccountAnalyzer(AccountAnalyzer):
                 * (1.0 if p["decision_source"] == "rule" else p["classification_score"])
                 for _, p in items
             )
-            decisive = [(m, p) for m, p in items if p["type"] in ("signup", "security", "deleted")]
+            decisive = [
+                (m, p)
+                for m, p in items
+                if p["type"] in ("signup", "security")
+                or (p["type"] == "deleted" and p["stage_hint"] == "account_deleted_completed")
+            ]
             if decisive:
                 latest = decisive[-1][1]
                 if latest["type"] == "deleted":
