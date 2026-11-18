@@ -132,12 +132,11 @@ def test_확인_버튼을_누르면_도메인과_상태로_요청_시그널이_�
     assert blocker.args == ["shop.example.com", CandidateStatus.EXCLUDED]
 
 
-def test_플레이북이_없는_서비스는_에이전트_버튼이_꺼지고_이유가_보인다(panel):
+def test_플레이북이_없는_서비스는_탈퇴_준비_버튼이_꺼지고_이유가_보인다(panel):
     # given / when
     panel.show_candidate(UNKNOWN)
 
     # then
-    assert not panel.agent_button.isEnabled()
     assert not panel.guide_button.isEnabled()
     assert "안내 정보(플레이북)가 없어" in panel.agent_hint.text()
 
@@ -189,12 +188,12 @@ def test_에이전트_화면은_후보_도메인에_맞는_플레이북을_찾�
 def guide(qtbot, panel):
     OPENED.clear()
     panel.show_candidate(SHOP)
-    panel.agent_button.click()
+    panel.guide_button.click()
     return panel.guide_dialog
 
 
-def test_에이전트_진행을_누르면_먼저_탈퇴_전_조건_안내_창이_열린다(guide):
-    # given / when: fixture에서 'AI 에이전트로 탈퇴 진행' 클릭
+def test_탈퇴_준비를_누르면_로그인_링크와_조건이_있는_안내_창이_열린다(guide):
+    # given / when: fixture에서 '탈퇴 준비' 클릭
 
     # then
     assert guide is not None and guide.isVisible()
