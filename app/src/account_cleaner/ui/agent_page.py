@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from account_cleaner import providers
 from account_cleaner.contracts import AgentEvent, AgentStatus, Playbook, WithdrawAgent
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import page_header, set_role
 from account_cleaner.ui.workers import BackgroundTask
 
 FINAL_STEP_TITLE = "최종 탈퇴 (직접)"
@@ -152,12 +152,14 @@ class AgentPage(QWidget):
 
         self.turn_box = QFrame()
         self.turn_box.setObjectName("userTurn")
-        self.turn_box.setFrameShape(QFrame.Shape.StyledPanel)
+        set_role(self.turn_box, "card", "true")
         self.turn_label = QLabel()
         self.turn_label.setWordWrap(True)
         self.resume_button = QPushButton("직접 처리했어요, 계속")
         self.resume_button.clicked.connect(self.resume)
         turn = QVBoxLayout(self.turn_box)
+        turn.setContentsMargins(20, 18, 20, 18)
+        turn.setSpacing(10)
         turn.addWidget(self.turn_label)
         turn.addWidget(self.resume_button)
         self.turn_box.hide()
@@ -196,8 +198,10 @@ class AgentPage(QWidget):
 
         right_box = QFrame()
         right_box.setObjectName("browserPanel")
-        right_box.setFrameShape(QFrame.Shape.StyledPanel)
+        set_role(right_box, "card", "true")
         right = QVBoxLayout(right_box)
+        right.setContentsMargins(20, 18, 20, 18)
+        right.setSpacing(10)
         right.addWidget(self.status_label)
         right.addWidget(self.url_label)
         right.addWidget(self.front_button)
@@ -209,8 +213,7 @@ class AgentPage(QWidget):
         columns.addWidget(right_box, 3)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title)
-        layout.addWidget(rule)
+        layout.addLayout(page_header(title, rule))
         layout.addLayout(columns, 1)
 
     # --- 실행 ---

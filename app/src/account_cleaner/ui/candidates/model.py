@@ -81,7 +81,9 @@ class CandidateSort(StrEnum):
 
     @property
     def label(self) -> str:
-        return {CandidateSort.SCORE: "신뢰도 높은 순", CandidateSort.RECENT: "최근 메일 순"}[self]
+        return {CandidateSort.SCORE: "계정일 가능성 높은 순", CandidateSort.RECENT: "최근 메일 순"}[
+            self
+        ]
 
 
 def evidence_label(evidence: Evidence) -> str:
@@ -150,7 +152,7 @@ class CandidateListModel(QAbstractListModel):
         if not index.isValid():
             return None
         row = self._rows[index.row()]
-        if role == Qt.ItemDataRole.DisplayRole:
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
             return row.display_text()
         if role == Role.CANDIDATE:
             return row.candidate

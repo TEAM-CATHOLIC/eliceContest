@@ -39,7 +39,7 @@ from account_cleaner.mail import (
     revoke,
 )
 from account_cleaner.pipeline import ImportOutcome, SourceOpener, Stage, run_pipeline
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import page_header, set_role
 from account_cleaner.ui.workers import BackgroundTask, TaskCancelled
 
 PRIVACY_NOTE = (
@@ -79,11 +79,13 @@ class SourceCard(QFrame):
     def __init__(self, title: str, description: str) -> None:
         super().__init__()
         self.setObjectName("sourceCard")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        set_role(self, "card", "true")
         self.body = QVBoxLayout(self)
+        self.body.setContentsMargins(20, 20, 20, 20)
+        self.body.setSpacing(10)
         heading = QLabel(title)
         set_role(heading, "role", "subtitle")
-        text = QLabel(description)
+        text = set_role(QLabel(description), "role", "muted")
         text.setWordWrap(True)
         self.body.addWidget(heading)
         self.body.addWidget(text)
@@ -212,8 +214,7 @@ class SourcesPage(QWidget):
         status.addWidget(self.cancel_button)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title)
-        layout.addWidget(privacy)
+        layout.addLayout(page_header(title, privacy))
         layout.addLayout(cards)
         layout.addLayout(status)
         layout.addWidget(self.message_label)

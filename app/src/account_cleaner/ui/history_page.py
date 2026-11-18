@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from account_cleaner.contracts import AgentStatus
 from account_cleaner.storage import EventKind, HistoryEvent, Progress, StatusStore
 from account_cleaner.ui.candidates.model import CandidateStatus
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import page_header, set_role
 
 RESULT_LABELS = {
     "started": "안내 중",
@@ -89,7 +89,7 @@ class HistoryPage(QWidget):
 
         self.reminder_box = QFrame()
         self.reminder_box.setObjectName("reminderBox")
-        self.reminder_box.setFrameShape(QFrame.Shape.StyledPanel)
+        set_role(self.reminder_box, "card", "true")
         self.reminder_title = QLabel()
         set_role(self.reminder_title, "role", "label")
         self.reminder_list = QListWidget()
@@ -106,6 +106,8 @@ class HistoryPage(QWidget):
             buttons.addWidget(button)
         buttons.addStretch(1)
         box = QVBoxLayout(self.reminder_box)
+        box.setContentsMargins(20, 18, 20, 18)
+        box.setSpacing(10)
         box.addWidget(self.reminder_title)
         box.addWidget(self.reminder_list)
         box.addLayout(buttons)
@@ -125,7 +127,7 @@ class HistoryPage(QWidget):
         self.event_list.setObjectName("eventList")
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title)
+        layout.addLayout(page_header(title))
         layout.addWidget(self.reminder_box)
         layout.addWidget(QLabel("서비스별 진행"))
         layout.addWidget(self.empty_label)
