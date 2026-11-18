@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner.contracts import AccountCandidate, LoginMethod, Playbook
+from account_cleaner.ui.theme import set_role
 
 UrlOpener = Callable[[str], None]
 
@@ -75,7 +76,7 @@ class WithdrawGuideDialog(QDialog):
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         heading = QLabel(f"{self.playbook.service} ({self.candidate.domain})")
-        heading.setStyleSheet("font-size: 18px; font-weight: 700;")
+        set_role(heading, "role", "titleSmall")
         layout.addWidget(heading)
 
         layout.addWidget(QLabel("로그인 방법"))

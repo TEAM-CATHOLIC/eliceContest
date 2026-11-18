@@ -27,6 +27,7 @@ from account_cleaner.contracts import (
 )
 from account_cleaner.ui.candidates.guide import UrlOpener, WithdrawGuideDialog, default_open_url
 from account_cleaner.ui.candidates.model import CandidateStatus, evidence_label
+from account_cleaner.ui.theme import set_role
 
 MailLookup = Callable[[str], ParsedMail | None]
 PlaybookLookup = Callable[[str], Playbook | None]
@@ -108,7 +109,7 @@ class CandidateDetailPanel(QWidget):
         self.empty_label.setWordWrap(True)
 
         self.title_label = QLabel()
-        self.title_label.setStyleSheet("font-size: 18px; font-weight: 700;")
+        set_role(self.title_label, "role", "titleSmall")
         self.status_label = QLabel()
         self.status_label.setObjectName("statusBadge")
         self.dates_label = QLabel()

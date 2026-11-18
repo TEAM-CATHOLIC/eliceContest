@@ -25,6 +25,7 @@ from account_cleaner.ui.candidates.model import (
     CandidateStatus,
     Role,
 )
+from account_cleaner.ui.theme import set_role
 
 EMPTY_TEXT = "메일을 가져와 분석하면 계정 후보가 여기에 보입니다."
 
@@ -37,7 +38,7 @@ class SummaryCard(QFrame):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(title))
         self.value = QLabel("0")
-        self.value.setStyleSheet("font-size: 24px; font-weight: 700;")
+        set_role(self.value, "role", "number")
         layout.addWidget(self.value)
 
 
@@ -63,7 +64,7 @@ class InventoryPage(QWidget):
     def _build(self) -> None:
         title = QLabel("계정 인벤토리")
         title.setObjectName("pageTitle")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        set_role(title, "role", "title")
 
         self.cards = {
             "total": SummaryCard("발견된 계정"),
