@@ -336,6 +336,7 @@ def main() -> int:
     inventory = InventoryPage()
     inventory.detail.set_playbook_lookup(agent_page.playbook_for_domain)
     window.top_bar.search_changed.connect(inventory.set_search)
+    agent_page.set_candidate_lookup(inventory.model.candidate_of)
     inventory.agent_requested.connect(
         lambda candidate: start_agent_for(window, inventory, agent_page, candidate, store)
     )

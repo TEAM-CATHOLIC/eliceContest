@@ -245,3 +245,24 @@ def test_시작_직전에_온_stop도_무시하지_않고_중단한다(tmp_path)
 
     # then
     assert final.status is AgentStatus.STOPPED
+
+
+def test_에이전트용_Chrome이_이미_열려_있으면_닫으라는_안내를_그대로_보여_준다(tmp_path):
+    # given: Chrome을 띄우지 못함 (#70: 예전엔 "ChromeStartError" 이름만 보였다)
+    from account_cleaner.browser.chrome_process import ChromeStartError
+
+    message = "에이전트용 Chrome이 이미 열려 있습니다. 그 창을 모두 닫고 다시 시작해 주세요."
+
+    @asynccontextmanager
+    async def opener(profile_dir):
+        raise ChromeStartError(message)
+        yield
+
+    agent = PlaywrightWithdrawAgent(tmp_path / "profile", page_opener=opener)
+
+    # when
+    result = agent.run(PLAYBOOK, lambda _event: None)
+
+    # then
+    assert result.status is AgentStatus.FAILED
+    assert result.message == message

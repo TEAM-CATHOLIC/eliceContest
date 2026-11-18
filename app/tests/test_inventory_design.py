@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame
 
 from account_cleaner.contracts import AccountCandidate, Evidence, EvidenceType
 from account_cleaner.ui.candidates.delegate import (
@@ -95,3 +96,24 @@ def test_상세_패널은_고른_상태_버튼을_꺼서_메인_색으로_보여
     assert not button.isEnabled()
     assert page.detail.status_label.text() == "확정"
     assert page.detail.title_label.text() == "Github"
+
+
+def test_창을_키우면_목록과_상세_패널이_함께_늘어난다(qtbot):
+    # given (#71)
+    page = InventoryPage()
+    qtbot.addWidget(page)
+    page.set_candidates([candidate("github", "github.com")])
+    page.resize(1000, 700)
+    page.show()
+    qtbot.waitExposed(page)
+    detail = page.findChild(QFrame, "candidateDetail")
+    small = detail.width()
+
+    # when
+    page.resize(1800, 900)
+    qtbot.waitUntil(lambda: detail.width() > small)
+
+    # then: 목록:상세 ≈ 3:2
+    list_card = page.findChild(QFrame, "candidateListCard")
+    assert detail.width() > small + 200
+    assert 1.2 < list_card.width() / detail.width() < 1.8

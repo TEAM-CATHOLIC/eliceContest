@@ -28,6 +28,8 @@ from account_cleaner.ui.candidates.model import (
 )
 from account_cleaner.ui.theme import page_header, set_role, tokens
 
+LIST_STRETCH, DETAIL_STRETCH = 3, 2
+DETAIL_MIN_WIDTH = 360
 EMPTY_TEXT = "메일을 가져와 분석하면 계정 후보가 여기에 보입니다."
 
 
@@ -152,16 +154,16 @@ class InventoryPage(QWidget):
         self.candidate_selected.connect(self._show_detail)
         detail_box = set_role(QFrame(), "card", "true")
         detail_box.setObjectName("candidateDetail")
-        detail_box.setMinimumWidth(360)
-        detail_box.setMaximumWidth(420)
+        detail_box.setMinimumWidth(DETAIL_MIN_WIDTH)
         detail_layout = QVBoxLayout(detail_box)
         detail_layout.setContentsMargins(22, 22, 22, 22)
         detail_layout.addWidget(self.detail)
 
         body = QHBoxLayout()
         body.setSpacing(tokens.SPACE_3)
-        body.addWidget(list_card, 1)
-        body.addWidget(detail_box, 0)
+        # 창을 키우면 목록과 상세가 3:2로 함께 늘어난다 (#71)
+        body.addWidget(list_card, LIST_STRETCH)
+        body.addWidget(detail_box, DETAIL_STRETCH)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(tokens.SPACE_1, 0, 0, 0)

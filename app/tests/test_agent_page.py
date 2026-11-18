@@ -105,3 +105,72 @@ def test_취소하면_작업에_등록한_중단_함수를_바로_부른다(qtbo
 
     # then
     assert called == [True]
+
+
+def test_안내_시작_버튼은_탈퇴_전_확인_창을_먼저_띄우고_바로_시작하지_않는다(page):
+    # when
+    page.start_button.click()
+
+    # then
+    assert page.guide_dialog is not None and page.guide_dialog.isVisible()
+    assert not page.is_running()
+
+
+def test_탈퇴_전_확인을_모두_체크하고_진행하면_안내가_시작된다(qtbot, page):
+    # given
+    page.start_button.click()
+    dialog = page.guide_dialog
+    for box in dialog.condition_boxes:
+        box.setChecked(True)
+
+    # when
+    dialog.proceed_button.click()
+
+    # then
+    qtbot.waitUntil(page.is_running, timeout=3000)
+
+
+def test_인벤토리에_후보가_있으면_확인_창에_그_후보의_가입_방식을_보여_준다(qtbot, page):
+    # given
+    from datetime import UTC, datetime
+
+    from account_cleaner.contracts import AccountCandidate, Evidence, EvidenceType, LoginMethod
+
+    playbook = page._playbooks[page.service_combo.currentData()]
+    candidate = AccountCandidate(
+        service=playbook.service,
+        domain=playbook.domains[0],
+        score=0.9,
+        evidence=(Evidence("m", EvidenceType.SIGNUP, 0.9),),
+        first_seen=datetime.now(UTC),
+        last_seen=datetime.now(UTC),
+        confirmed_login_method=LoginMethod.KAKAO,
+    )
+    page.set_candidate_lookup(lambda d: candidate if d == candidate.domain else None)
+
+    # when
+    page.start_button.click()
+
+    # then
+    assert page.guide_dialog.candidate is candidate
+    assert any("카카오" in line for line in page.guide_dialog.login_lines)
+
+
+def test_안전_데모는_확인_창_없이_바로_시작한다(qtbot, tmp_path):
+    # given
+    page = AgentPage(
+        tmp_path / "profile",
+        agent_factory=lambda d: FakeWithdrawAgent(d, step_delay=0.01),
+        playbook_loader=dict,
+        include_demo=True,
+    )
+    qtbot.addWidget(page)
+
+    # when
+    page.start_button.click()
+
+    # then
+    assert page.guide_dialog is None
+    qtbot.waitUntil(page.is_running, timeout=3000)
+    page.stop()
+    BackgroundTask.shutdown_all()

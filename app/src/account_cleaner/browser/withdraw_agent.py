@@ -20,7 +20,7 @@ from account_cleaner.browser.agent import BrowserAgent
 from account_cleaner.browser.agent import Playbook as EnginePlaybook
 from account_cleaner.browser.agent.models import AgentResult, Step
 from account_cleaner.browser.agent.models import AgentStatus as EngineStatus
-from account_cleaner.browser.chrome_process import attached_chrome
+from account_cleaner.browser.chrome_process import ChromeStartError, attached_chrome
 from account_cleaner.contracts import (
     AgentEvent,
     AgentStatus,
@@ -149,6 +149,9 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
             return self._finish(on_event, AgentEvent(AgentStatus.FAILED, message))
         try:
             return asyncio.run(self._run(to_engine_playbook(playbook), on_event))
+        except ChromeStartError as e:  # 사용자가 할 일이 담긴 안내 문구를 그대로 보여 준다 (#70)
+            log.warning("에이전트용 Chrome 시작 실패: %s", e)
+            return self._finish(on_event, AgentEvent(AgentStatus.FAILED, str(e)))
         except Exception as e:
             log.exception("브라우저 에이전트 실행 실패")
             message = f"브라우저를 실행하지 못했습니다 ({type(e).__name__})."

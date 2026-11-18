@@ -24,7 +24,13 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner import providers
-from account_cleaner.contracts import AgentEvent, AgentStatus, Playbook, WithdrawAgent
+from account_cleaner.contracts import (
+    AccountCandidate,
+    AgentEvent,
+    AgentStatus,
+    Playbook,
+    WithdrawAgent,
+)
 from account_cleaner.ui.theme import page_header, page_layout, section_card, set_role, tokens
 from account_cleaner.ui.workers import BackgroundTask
 
@@ -99,6 +105,10 @@ class StepList(QListWidget):
         return [self.item(i).text() for i in range(self.count())]
 
 
+CandidateLookup = Callable[[str], AccountCandidate | None]
+"""도메인 → 인벤토리 후보 (없으면 None)"""
+
+
 class AgentPage(QWidget):
     run_finished = Signal(object)
     """마지막 `AgentEvent` (종료 상태)"""
@@ -118,6 +128,8 @@ class AgentPage(QWidget):
         self._agent: WithdrawAgent | None = None
         self._task: BackgroundTask | None = None
         self._demo_server = None
+        self.guide_dialog = None
+        self._candidate_lookup: CandidateLookup = lambda _domain: None
         self.current_domain: str | None = None
         """후보 상세에서 시작한 안내일 때 그 후보의 도메인 (결과 기록용)"""
         self._relay = _EventRelay(self)
@@ -141,7 +153,7 @@ class AgentPage(QWidget):
             self.service_combo.addItem("안전 데모 (로컬)", DEMO_KEY)
         self.start_button = set_role(QPushButton("안내 시작"), "variant", "primary")
         self.start_button.setMinimumWidth(120)
-        self.start_button.clicked.connect(self.start)
+        self.start_button.clicked.connect(self.request_start)
         self.stop_button = QPushButton("안내 중단")
         self.stop_button.clicked.connect(self.stop)
         control_card, control = section_card()
@@ -253,6 +265,35 @@ class AgentPage(QWidget):
     def playbook_for_domain(self, domain: str) -> Playbook | None:
         """계정 후보 도메인에 맞는 플레이북 (상세 패널의 'AI 에이전트로 탈퇴 진행' 활성화에 씀)."""
         return next((p for p in self._playbooks.values() if p.matches_domain(domain)), None)
+
+    def set_candidate_lookup(self, lookup: CandidateLookup) -> None:
+        """안내 창에 메일에서 찾은 가입 방식을 보여 주려고 인벤토리 후보를 찾는다."""
+        self._candidate_lookup = lookup
+
+    def request_start(self) -> None:
+        """`안내 시작` 버튼. 인벤토리와 같은 안내 창(로그인 방법 + 탈퇴 전 확인)을 거친다 (#70).
+
+        연습용 `안전 데모`는 바로 시작한다. 인벤토리·진행 기록에서 온 안내는 이미 확인했으므로
+        `start_for`로 바로 시작한다.
+        """
+        if self.is_running():
+            return
+        key = self.service_combo.currentData()
+        if key == DEMO_KEY:
+            self.start()
+            return
+        from account_cleaner.ui.candidates.guide import WithdrawGuideDialog
+
+        playbook = self._playbooks[key]
+        candidate = next(
+            (c for d in playbook.domains if (c := self._candidate_lookup(d)) is not None), None
+        )
+        if self.guide_dialog is not None:
+            self.guide_dialog.close()
+        dialog = WithdrawGuideDialog(candidate, playbook, self)
+        dialog.agent_requested.connect(lambda _candidate: self.start())
+        self.guide_dialog = dialog
+        dialog.open()
 
     def start_for(self, playbook_id: str) -> bool:
         """그 서비스를 골라 바로 안내를 시작한다. 이미 진행 중이면 False."""
