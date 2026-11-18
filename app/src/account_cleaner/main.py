@@ -30,6 +30,7 @@ from account_cleaner.ui.history_page import HistoryPage
 from account_cleaner.ui.main_window import APP_TITLE, MainWindow, PageId
 from account_cleaner.ui.session_cleaner import SessionCleaner
 from account_cleaner.ui.sources_page import SourcesPage
+from account_cleaner.ui.theme import apply_theme
 from account_cleaner.ui.workers import BackgroundTask
 
 ORGANIZATION = "TEAM-CATHOLIC"
@@ -299,6 +300,7 @@ def main() -> int:
     app.setOrganizationName(ORGANIZATION)
     app.setApplicationName(APPLICATION)
     app.setApplicationDisplayName(APP_TITLE)
+    apply_theme(app)
 
     try:
         paths = resolve_app_paths()

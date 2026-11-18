@@ -39,6 +39,7 @@ from account_cleaner.mail import (
     revoke,
 )
 from account_cleaner.pipeline import ImportOutcome, SourceOpener, Stage, run_pipeline
+from account_cleaner.ui.theme import set_role
 from account_cleaner.ui.workers import BackgroundTask, TaskCancelled
 
 PRIVACY_NOTE = (
@@ -81,7 +82,7 @@ class SourceCard(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.body = QVBoxLayout(self)
         heading = QLabel(title)
-        heading.setStyleSheet("font-size: 16px; font-weight: 600;")
+        set_role(heading, "role", "subtitle")
         text = QLabel(description)
         text.setWordWrap(True)
         self.body.addWidget(heading)
@@ -167,7 +168,7 @@ class SourcesPage(QWidget):
     def _build(self) -> None:
         title = QLabel("메일 소스 연결")
         title.setObjectName("pageTitle")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        set_role(title, "role", "title")
         privacy = QLabel(PRIVACY_NOTE)
         privacy.setObjectName("privacyNote")
         privacy.setWordWrap(True)

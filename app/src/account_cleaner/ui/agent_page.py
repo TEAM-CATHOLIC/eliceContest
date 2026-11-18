@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from account_cleaner import providers
 from account_cleaner.contracts import AgentEvent, AgentStatus, Playbook, WithdrawAgent
+from account_cleaner.ui.theme import set_role
 from account_cleaner.ui.workers import BackgroundTask
 
 FINAL_STEP_TITLE = "최종 탈퇴 (직접)"
@@ -131,7 +132,7 @@ class AgentPage(QWidget):
     def _build(self) -> None:
         title = QLabel("AI 에이전트 정리")
         title.setObjectName("pageTitle")
-        title.setStyleSheet("font-size: 20px; font-weight: 600;")
+        set_role(title, "role", "title")
         rule = QLabel(f"AI 통제 규칙: {SAFETY_RULE}")
         rule.setObjectName("safetyRule")
         rule.setWordWrap(True)
@@ -180,7 +181,7 @@ class AgentPage(QWidget):
         self.status_label = QLabel("서비스를 고르고 안내를 시작하세요")
         self.status_label.setObjectName("browserStatus")
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("font-size: 16px; font-weight: 600;")
+        set_role(self.status_label, "role", "subtitle")
         self.url_label = QLabel("")
         self.url_label.setObjectName("browserUrl")
         self.url_label.setWordWrap(True)
