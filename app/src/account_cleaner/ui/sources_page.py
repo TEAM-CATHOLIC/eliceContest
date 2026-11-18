@@ -39,7 +39,7 @@ from account_cleaner.mail import (
     revoke,
 )
 from account_cleaner.pipeline import ImportOutcome, SourceOpener, Stage, run_pipeline
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import page_header, set_role
 from account_cleaner.ui.workers import BackgroundTask, TaskCancelled
 
 PRIVACY_NOTE = (
@@ -214,8 +214,7 @@ class SourcesPage(QWidget):
         status.addWidget(self.cancel_button)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title)
-        layout.addWidget(privacy)
+        layout.addLayout(page_header(title, privacy))
         layout.addLayout(cards)
         layout.addLayout(status)
         layout.addWidget(self.message_label)

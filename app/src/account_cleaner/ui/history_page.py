@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from account_cleaner.contracts import AgentStatus
 from account_cleaner.storage import EventKind, HistoryEvent, Progress, StatusStore
 from account_cleaner.ui.candidates.model import CandidateStatus
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import page_header, set_role
 
 RESULT_LABELS = {
     "started": "안내 중",
@@ -127,7 +127,7 @@ class HistoryPage(QWidget):
         self.event_list.setObjectName("eventList")
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title)
+        layout.addLayout(page_header(title))
         layout.addWidget(self.reminder_box)
         layout.addWidget(QLabel("서비스별 진행"))
         layout.addWidget(self.empty_label)

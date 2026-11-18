@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from account_cleaner import providers
 from account_cleaner.contracts import AgentEvent, AgentStatus, Playbook, WithdrawAgent
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import page_header, set_role
 from account_cleaner.ui.workers import BackgroundTask
 
 FINAL_STEP_TITLE = "최종 탈퇴 (직접)"
@@ -213,8 +213,7 @@ class AgentPage(QWidget):
         columns.addWidget(right_box, 3)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title)
-        layout.addWidget(rule)
+        layout.addLayout(page_header(title, rule))
         layout.addLayout(columns, 1)
 
     # --- 실행 ---

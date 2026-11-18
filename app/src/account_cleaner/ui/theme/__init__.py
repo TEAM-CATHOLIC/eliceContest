@@ -4,13 +4,22 @@ import logging
 from pathlib import Path
 
 from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from account_cleaner.ui.theme import tokens
 from account_cleaner.ui.theme.icons import Icon, icon, pixmap
 from account_cleaner.ui.theme.stylesheet import build_stylesheet
 
-__all__ = ["Icon", "apply_theme", "icon", "load_fonts", "pixmap", "set_role", "tokens"]
+__all__ = [
+    "Icon",
+    "apply_theme",
+    "icon",
+    "load_fonts",
+    "page_header",
+    "pixmap",
+    "set_role",
+    "tokens",
+]
 
 log = logging.getLogger(__name__)
 
@@ -49,3 +58,22 @@ def set_role(widget: QWidget, name: str, value: str = "true") -> QWidget:
     style.unpolish(widget)
     style.polish(widget)
     return widget
+
+
+HEADER_GAP = tokens.SPACE_2
+"""페이지 제목과 한 줄 설명 사이"""
+HEADER_BOTTOM = tokens.SPACE_2
+"""제목 묶음과 아래 내용 사이 (페이지 layout 간격에 더해짐)"""
+
+
+def page_header(title: QLabel, subtitle: QLabel | None = None) -> QVBoxLayout:
+    """페이지 맨 위 제목 + 한 줄 설명. 모든 화면이 같은 여백을 쓴다."""
+    layout = QVBoxLayout()
+    layout.setContentsMargins(0, 0, 0, HEADER_BOTTOM)
+    layout.setSpacing(HEADER_GAP)
+    layout.addWidget(set_role(title, "role", "title"))
+    if subtitle is not None:
+        set_role(subtitle, "role", "muted")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+    return layout
