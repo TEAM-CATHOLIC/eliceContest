@@ -104,6 +104,26 @@ def test_비밀번호_입력칸이_보이면_사용자에게_넘긴다():
     assert result.reason == "password"
 
 
+def test_이메일을_먼저_묻는_로그인도_입력없이_사용자에게_넘긴다():
+    from account_cleaner.browser.agent.handoff import LOGIN_EMAIL_SELECTOR
+
+    page = FakePage(url="https://example.com/login?cont=settings", visible={LOGIN_EMAIL_SELECTOR})
+    agent = BrowserAgent(make_playbook(Step(Action.WAIT_FOR, "main")))
+    result = run_immediate(agent.run(page, navigate_entry=False))
+    assert result.status is AgentStatus.WAITING_FOR_USER
+    assert result.reason == "password"
+    assert page.clicks == [] and page.gotos == []
+
+
+def test_일반화면의_뉴스레터_이메일칸은_로그인으로_오인하지않는다():
+    from account_cleaner.browser.agent.handoff import LOGIN_EMAIL_SELECTOR
+
+    page = FakePage(url="https://example.com/newsletter", visible={LOGIN_EMAIL_SELECTOR, "main"})
+    agent = BrowserAgent(make_playbook(Step(Action.WAIT_FOR, "main")))
+    result = run_immediate(agent.run(page, navigate_entry=False))
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+
+
 def test_최종_탈퇴_문구가_있는_버튼은_클릭하지_않고_차단한다():
     # given
     selector = "button.delete"
