@@ -56,11 +56,11 @@ def login_method_lines(playbook: Playbook, confirmed: LoginMethod | None) -> lis
 
 class WithdrawGuideDialog(QDialog):
     agent_requested = Signal(object)
-    """조건을 모두 확인하고 'AI 에이전트로 탈퇴 진행'을 누른 `AccountCandidate`"""
+    """조건을 모두 확인하고 'AI 에이전트로 탈퇴 진행'을 누른 `AccountCandidate` (후보 없이 열었으면 None)"""
 
     def __init__(
         self,
-        candidate: AccountCandidate,
+        candidate: AccountCandidate | None,
         playbook: Playbook,
         parent: QWidget | None = None,
         open_url: UrlOpener = default_open_url,
@@ -80,7 +80,8 @@ class WithdrawGuideDialog(QDialog):
         layout.setSpacing(tokens.SPACE_3)
         heading = QLabel(self.playbook.service)
         set_role(heading, "role", "titleSmall")
-        domain = set_role(QLabel(self.candidate.domain), "role", "caption")
+        shown_domain = self.candidate.domain if self.candidate else self.playbook.domains[0]
+        domain = set_role(QLabel(shown_domain), "role", "caption")
         names = QVBoxLayout()
         names.setSpacing(2)
         names.addWidget(heading)
@@ -89,7 +90,8 @@ class WithdrawGuideDialog(QDialog):
         layout.addSpacing(tokens.SPACE_1)
 
         login_card, login = section_card("1. 로그인 방법")
-        self.login_lines = login_method_lines(self.playbook, self.candidate.confirmed_login_method)
+        method = self.candidate.confirmed_login_method if self.candidate else None
+        self.login_lines = login_method_lines(self.playbook, method)
         for line in self.login_lines:
             label = set_role(QLabel(f"• {line}"), "role", "body")
             label.setWordWrap(True)
