@@ -7,6 +7,8 @@
 | [`docs/`](docs) | 기획 문서 — PRD, 기술 스택 ADR, 논의사항 |
 | [`app/`](app) | 데스크톱 앱 (Python 3.12 + PySide6 + Playwright) |
 
+**앱을 처음 써 본다면 [화면별 사용 가이드](docs/06_화면별_사용가이드.md)부터 본다.**
+
 **개발 환경 세팅은 [`app/README.md`](app/README.md)를 따라 한다.** 요약:
 
 ```bash
