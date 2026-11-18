@@ -64,9 +64,11 @@ uv sync --group ml
 ### 1-4. 잘 됐는지 확인
 
 ```bash
-uv run pytest            # 테스트 2개 통과하면 OK (앱 창 생성, Chrome 실행)
-uv run account-cleaner   # "환경 세팅 완료" 창이 뜨면 OK
+uv run pytest            # 모두 통과하면 OK (일부는 설치된 Chrome을 실제로 띄운다)
+uv run account-cleaner   # 앱 창이 뜨면 OK
 ```
+
+> `uv run`과 빌드 결과물에서 되는 기능이 조금 다르다 (Gmail 연결, 실제 AI 분류기, 키체인 등). [RUN_MODES.md](RUN_MODES.md)를 본다.
 
 ---
 
@@ -110,6 +112,7 @@ PyInstaller는 자기 OS용 실행파일만 만든다. Mac·Windows 실행파일
    - **macOS:** 서명이 없어서 처음에는 막힌다. `AccountCleaner.app`을 **우클릭 → 열기**. 그래도 막히면 터미널에서 `xattr -cr AccountCleaner.app`을 실행한다. Apple Silicon(M1 이상)용이다.
    - **Windows:** SmartScreen이 뜨면 **추가 정보 → 실행**. 폴더째 두고 `AccountCleaner.exe`를 실행한다 (exe만 꺼내면 안 됨).
 3. **Google Chrome이 설치되어 있어야 한다.** 없으면 앱이 시작할 때 안내한다.
+4. 빌드 결과물에서만 되는 것과 안 되는 것은 [RUN_MODES.md](RUN_MODES.md)에 정리했다.
 
 ## 4. 라이브러리 추가·삭제
 
