@@ -89,7 +89,7 @@ class HistoryPage(QWidget):
 
         self.reminder_box = QFrame()
         self.reminder_box.setObjectName("reminderBox")
-        self.reminder_box.setFrameShape(QFrame.Shape.StyledPanel)
+        set_role(self.reminder_box, "card", "true")
         self.reminder_title = QLabel()
         set_role(self.reminder_title, "role", "label")
         self.reminder_list = QListWidget()
@@ -106,6 +106,8 @@ class HistoryPage(QWidget):
             buttons.addWidget(button)
         buttons.addStretch(1)
         box = QVBoxLayout(self.reminder_box)
+        box.setContentsMargins(20, 18, 20, 18)
+        box.setSpacing(10)
         box.addWidget(self.reminder_title)
         box.addWidget(self.reminder_list)
         box.addLayout(buttons)

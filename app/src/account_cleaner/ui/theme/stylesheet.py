@@ -95,6 +95,7 @@ QListView::item:hover, QListWidget::item:hover, QTableView::item:hover {{ backgr
 QListView::item:selected, QListWidget::item:selected, QTableView::item:selected {{
     background: {t.ACCENT_SOFT}; color: {t.GRAY_1000};
 }}
+QTableView, QTableWidget {{ gridline-color: {t.GRAY_300}; }}
 QTableView::item {{ padding: 0 {t.SPACE_2}px; }}
 QHeaderView::section {{
     background: {t.WHITE}; color: {t.GRAY_800}; font-weight: 600;
