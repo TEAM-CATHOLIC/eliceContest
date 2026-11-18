@@ -247,9 +247,11 @@ def test_인벤토리에_없는_서비스도_재알림에서_다시_안내를_�
     from account_cleaner.ui.agent_page import AgentPage
     from account_cleaner.ui.candidates.page import InventoryPage
     from account_cleaner.ui.main_window import MainWindow, PageId
+    from account_cleaner.ui.workers import BackgroundTask
 
     window, inventory = MainWindow(), InventoryPage()
     qtbot.addWidget(window)
+    qtbot.addWidget(inventory)
     agent_page = AgentPage(
         tmp_path / "profile",
         agent_factory=lambda d: FakeWithdrawAgent(d, step_delay=0.01),
@@ -266,4 +268,4 @@ def test_인벤토리에_없는_서비스도_재알림에서_다시_안내를_�
     assert agent_page.current_domain == "shop.example.com"
     assert store.progress("shop.example.com").last_result == "started"
     agent_page.stop()  # 탈퇴 화면 도착 뒤에는 사용자가 닫을 때까지 기다리므로 직접 멈춘다
-    qtbot.waitUntil(lambda: not agent_page.is_running(), timeout=5000)
+    BackgroundTask.shutdown_all()
