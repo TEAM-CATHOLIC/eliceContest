@@ -3,7 +3,8 @@
 - 글자: `QLabel[role="title" | "titleSmall" | "subtitle" | "label" | "body" | "caption" | "muted" | "number"]`
 - 버튼: `QPushButton[variant="primary" | "soft" | "ghost" | "choice"]` (없으면 흰 바탕 보조 버튼).
   "choice"는 고른 값이 꺼진(disabled) 상태로 표시될 때 메인 색으로 보인다
-- 카드: `QFrame[card="true"]` 흰 바탕 둥근 상자, `QFrame[card="subtle"]` 옅은 회색 상자
+- 카드: `QFrame[card="true"]` 흰 바탕 둥근 상자, `QFrame[card="subtle"]` 옅은 회색 상자,
+  `QFrame[card="warning"]` 노란 알림 상자
 """
 
 from account_cleaner.ui.theme import tokens as t
@@ -41,6 +42,9 @@ QLabel[role="number"][accent="true"], QLabel[role="caption"][accent="true"] {{ c
 
 QFrame[card="true"] {{ background: {t.WHITE}; border: none; border-radius: {t.RADIUS_PANEL}px; }}
 QFrame[card="subtle"] {{ background: {t.GRAY_100}; border: none; border-radius: {t.RADIUS + 2}px; }}
+QFrame[card="warning"] {{ background: {t.YELLOW[0]}; border: 1px solid #f3e3a8; border-radius: {t.RADIUS_PANEL}px; }}
+QFrame[card="warning"] QLabel {{ color: {t.YELLOW[1]}; }}
+QFrame[card="warning"] QListWidget {{ background: {t.WHITE}; }}
 QFrame[card="accent"] {{ background: {t.ACCENT}; border: none; border-radius: {t.RADIUS_CARD}px; }}
 
 QPushButton {{

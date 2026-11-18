@@ -14,20 +14,18 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 
 from account_cleaner import providers
 from account_cleaner.contracts import AgentEvent, AgentStatus, Playbook, WithdrawAgent
-from account_cleaner.ui.theme import page_header, set_role
+from account_cleaner.ui.theme import page_header, page_layout, section_card, set_role, tokens
 from account_cleaner.ui.workers import BackgroundTask
 
 FINAL_STEP_TITLE = "최종 탈퇴 (직접)"
@@ -132,88 +130,86 @@ class AgentPage(QWidget):
     def _build(self) -> None:
         title = QLabel("AI 에이전트 정리")
         title.setObjectName("pageTitle")
-        set_role(title, "role", "title")
         rule = QLabel(f"AI 통제 규칙: {SAFETY_RULE}")
         rule.setObjectName("safetyRule")
-        rule.setWordWrap(True)
 
+        # 위: 서비스 고르기 + 시작·중단
         self.service_combo = QComboBox()
         for key, playbook in sorted(self._playbooks.items(), key=lambda kv: kv[1].service):
             self.service_combo.addItem(playbook.service, key)
         if self._include_demo:
             self.service_combo.addItem("안전 데모 (로컬)", DEMO_KEY)
-        self.start_button = QPushButton("안내 시작")
+        self.start_button = set_role(QPushButton("안내 시작"), "variant", "primary")
+        self.start_button.setMinimumWidth(120)
         self.start_button.clicked.connect(self.start)
+        self.stop_button = QPushButton("안내 중단")
+        self.stop_button.clicked.connect(self.stop)
+        control_card, control = section_card()
         chooser = QHBoxLayout()
+        chooser.setSpacing(tokens.SPACE_2)
         chooser.addWidget(self.service_combo, 1)
         chooser.addWidget(self.start_button)
+        chooser.addWidget(self.stop_button)
+        control.addLayout(chooser)
 
+        # 왼쪽: 진행 단계 (+ 사용자 차례 알림)
         self.steps = StepList()
-
-        self.turn_box = QFrame()
+        self.steps.setMinimumHeight(160)
+        self.turn_box, turn = section_card(kind="warning")
         self.turn_box.setObjectName("userTurn")
-        set_role(self.turn_box, "card", "true")
-        self.turn_label = QLabel()
+        self.turn_label = set_role(QLabel(), "role", "label")
         self.turn_label.setWordWrap(True)
-        self.resume_button = QPushButton("직접 처리했어요, 계속")
+        self.resume_button = set_role(QPushButton("직접 처리했어요, 계속"), "variant", "primary")
         self.resume_button.clicked.connect(self.resume)
-        turn = QVBoxLayout(self.turn_box)
-        turn.setContentsMargins(20, 18, 20, 18)
-        turn.setSpacing(10)
         turn.addWidget(self.turn_label)
         turn.addWidget(self.resume_button)
         self.turn_box.hide()
+        steps_card, steps = section_card("진행 단계")
+        steps.addWidget(self.turn_box)
+        steps.addWidget(self.steps, 1)
 
-        self.stop_button = QPushButton("안내 중단")
-        self.stop_button.clicked.connect(self.stop)
-
-        self.log_view = QPlainTextEdit()
-        self.log_view.setObjectName("agentLog")
-        self.log_view.setReadOnly(True)
-
-        left = QVBoxLayout()
-        left.addLayout(chooser)
-        left.addWidget(QLabel("진행 단계"))
-        left.addWidget(self.steps, 2)
-        left.addWidget(self.turn_box)
-        left.addWidget(self.stop_button)
-        left.addWidget(QLabel("진행 로그"))
-        left.addWidget(self.log_view, 2)
-
+        # 오른쪽: Chrome 창 상태 + 진행 로그
         self.status_label = QLabel("서비스를 고르고 안내를 시작하세요")
         self.status_label.setObjectName("browserStatus")
         self.status_label.setWordWrap(True)
         set_role(self.status_label, "role", "subtitle")
-        self.url_label = QLabel("")
+        self.url_label = set_role(QLabel(""), "role", "caption")
         self.url_label.setObjectName("browserUrl")
         self.url_label.setWordWrap(True)
         self.url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.front_button = QPushButton("Chrome 창 앞으로 가져오기")
         self.front_button.clicked.connect(self.bring_to_front)
-        note = QLabel(
-            "브라우저는 앱 안이 아니라 별도 Chrome 창(앱 전용 프로필)으로 열립니다. "
-            "로그인과 인증은 그 창에서 직접 하세요."
+        note = set_role(
+            QLabel(
+                "브라우저는 앱 안이 아니라 별도 Chrome 창(앱 전용 프로필)으로 열립니다. "
+                "로그인과 인증은 그 창에서 직접 하세요."
+            ),
+            "role",
+            "muted",
         )
         note.setWordWrap(True)
-
-        right_box = QFrame()
+        self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("agentLog")
+        self.log_view.setReadOnly(True)
+        self.log_view.setPlaceholderText("안내를 시작하면 진행 상황이 여기에 쌓입니다.")
+        right_box, right = section_card()
         right_box.setObjectName("browserPanel")
-        set_role(right_box, "card", "true")
-        right = QVBoxLayout(right_box)
-        right.setContentsMargins(20, 18, 20, 18)
-        right.setSpacing(10)
         right.addWidget(self.status_label)
         right.addWidget(self.url_label)
-        right.addWidget(self.front_button)
         right.addWidget(note)
-        right.addStretch(1)
+        right.addWidget(self.front_button, 0, Qt.AlignmentFlag.AlignLeft)
+        right.addSpacing(tokens.SPACE_1)
+        right.addWidget(set_role(QLabel("진행 로그"), "role", "label"))
+        right.addWidget(self.log_view, 1)
 
         columns = QHBoxLayout()
-        columns.addLayout(left, 2)
+        columns.setSpacing(tokens.SPACE_3)
+        columns.addWidget(steps_card, 2)
         columns.addWidget(right_box, 3)
 
-        layout = QVBoxLayout(self)
+        layout = page_layout(self)
         layout.addLayout(page_header(title, rule))
+        layout.addWidget(control_card)
         layout.addLayout(columns, 1)
 
     # --- 실행 ---

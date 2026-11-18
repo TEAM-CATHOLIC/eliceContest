@@ -9,7 +9,7 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -39,7 +39,15 @@ from account_cleaner.mail import (
     revoke,
 )
 from account_cleaner.pipeline import ImportOutcome, SourceOpener, Stage, run_pipeline
-from account_cleaner.ui.theme import page_header, set_role
+from account_cleaner.ui.theme import (
+    Icon,
+    page_header,
+    page_layout,
+    pixmap,
+    section_card,
+    set_role,
+    tokens,
+)
 from account_cleaner.ui.workers import BackgroundTask, TaskCancelled
 
 PRIVACY_NOTE = (
@@ -76,19 +84,46 @@ class _StageRelay(QObject):
 
 
 class SourceCard(QFrame):
-    def __init__(self, title: str, description: str) -> None:
+    """메일 소스 카드: [아이콘] 제목 (배지) / 설명 / … / 아래 버튼. 버튼은 카드 바닥에 맞춘다."""
+
+    def __init__(
+        self, title: str, description: str, icon_name: str = Icon.SOURCES, badge: str = ""
+    ) -> None:
         super().__init__()
         self.setObjectName("sourceCard")
         set_role(self, "card", "true")
         self.body = QVBoxLayout(self)
-        self.body.setContentsMargins(20, 20, 20, 20)
-        self.body.setSpacing(10)
-        heading = QLabel(title)
-        set_role(heading, "role", "subtitle")
+        self.body.setContentsMargins(tokens.SPACE_5, tokens.SPACE_5, tokens.SPACE_5, tokens.SPACE_5)
+        self.body.setSpacing(tokens.SPACE_3)
+        mark = QLabel()
+        mark.setFixedSize(40, 40)
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mark.setPixmap(pixmap(icon_name, tokens.ACCENT, 20))
+        mark.setStyleSheet(f"background: {tokens.ACCENT_SOFT}; border-radius: 12px;")
+        head = QHBoxLayout()
+        head.setSpacing(tokens.SPACE_3)
+        head.addWidget(mark)
+        heading = set_role(QLabel(title), "role", "subtitle")
+        heading.setWordWrap(True)
+        head.addWidget(heading, 1)
+        if badge:
+            pill = QLabel(badge)
+            pill.setFixedHeight(24)
+            pill.setStyleSheet(
+                f"background: {tokens.GRAY_200}; color: {tokens.GRAY_800}; border-radius: 12px;"
+                " padding: 0 10px; font-size: 12px; font-weight: 600;"
+            )
+            head.addWidget(pill, 0, Qt.AlignmentFlag.AlignTop)
         text = set_role(QLabel(description), "role", "muted")
         text.setWordWrap(True)
-        self.body.addWidget(heading)
+        self.body.addLayout(head)
         self.body.addWidget(text)
+
+    def add_bottom(self, *widgets: QWidget) -> None:
+        """남는 공간 아래에 붙인다 (세 카드의 버튼 높이를 맞춘다)."""
+        self.body.addStretch(1)
+        for widget in widgets:
+            self.body.addWidget(widget)
 
 
 class FileCard(SourceCard):
@@ -101,23 +136,30 @@ class FileCard(SourceCard):
             "메일함 파일 (MBOX / EML)",
             "Gmail 테이크아웃(.mbox, .zip)이나 메일 프로그램에서 내보낸 .eml 파일·폴더를 "
             "고르거나 이곳에 끌어다 놓으세요.",
+            Icon.INVENTORY,
         )
         self.setAcceptDrops(True)
         self.paths: list[Path] = []
-        self.files_label = QLabel("선택한 파일 없음")
+        self.files_label = set_role(QLabel("선택한 파일 없음"), "role", "caption")
         self.files_label.setWordWrap(True)
+        self.files_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.files_label.setMinimumHeight(44)
+        self.files_label.setStyleSheet(
+            f"border: 1.5px dashed {tokens.GRAY_400}; border-radius: 10px; padding: 8px;"
+        )
         pick_files = QPushButton("파일 선택")
         pick_files.clicked.connect(self._pick_files)
         pick_folder = QPushButton("폴더 선택")
         pick_folder.clicked.connect(self._pick_folder)
-        self.import_button = QPushButton("파일에서 가져오기")
+        self.import_button = set_role(QPushButton("파일에서 가져오기"), "variant", "primary")
         self.import_button.setEnabled(False)
-        buttons = QHBoxLayout()
-        buttons.addWidget(pick_files)
-        buttons.addWidget(pick_folder)
-        self.body.addLayout(buttons)
-        self.body.addWidget(self.files_label)
-        self.body.addWidget(self.import_button)
+        buttons = QWidget()
+        row = QHBoxLayout(buttons)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(tokens.SPACE_2)
+        row.addWidget(pick_files)
+        row.addWidget(pick_folder)
+        self.add_bottom(self.files_label, buttons, self.import_button)
 
     def set_paths(self, paths: list[Path]) -> None:
         self.paths = paths
@@ -170,10 +212,8 @@ class SourcesPage(QWidget):
     def _build(self) -> None:
         title = QLabel("메일 소스 연결")
         title.setObjectName("pageTitle")
-        set_role(title, "role", "title")
         privacy = QLabel(PRIVACY_NOTE)
         privacy.setObjectName("privacyNote")
-        privacy.setWordWrap(True)
 
         self.gmail_card = SourceCard(
             "Gmail 계정 연결",
@@ -183,40 +223,47 @@ class SourcesPage(QWidget):
         self.gmail_limit = QComboBox()
         for value, text in GMAIL_LIMITS:
             self.gmail_limit.addItem(text, value)
-        self.gmail_button = QPushButton("Google로 로그인해 가져오기")
+        self.gmail_button = set_role(
+            QPushButton("Google로 로그인해 가져오기"), "variant", "primary"
+        )
         self.gmail_button.clicked.connect(self.start_gmail)
-        self.gmail_card.body.addWidget(self.gmail_limit)
-        self.gmail_card.body.addWidget(self.gmail_button)
+        self.gmail_card.add_bottom(self.gmail_limit, self.gmail_button)
 
         self.file_card = FileCard()
         self.file_card.import_button.clicked.connect(lambda: self.start_files(self.file_card.paths))
 
         self.naver_card = SourceCard(
-            "네이버 메일 (준비 중)",
+            "네이버 메일",
             "네이버는 메일용 로그인 연동이 없어 IMAP과 애플리케이션 비밀번호로 연결할 예정입니다.",
+            badge="준비 중",
         )
+        self.naver_card.add_bottom()
         self.naver_card.setEnabled(False)
 
         cards = QHBoxLayout()
+        cards.setSpacing(tokens.SPACE_3)
         for card in (self.gmail_card, self.file_card, self.naver_card):
             cards.addWidget(card, 1)
 
-        self.stage_label = QLabel("")
+        self.stage_label = set_role(QLabel(""), "role", "label")
         self.progress = QProgressBar()
         self.cancel_button = QPushButton("가져오기 취소")
         self.cancel_button.clicked.connect(self.cancel)
-        self.message_label = QLabel("")
+        self.status_card, status = section_card()
+        row = QHBoxLayout()
+        row.setSpacing(tokens.SPACE_4)
+        row.addWidget(self.stage_label)
+        row.addWidget(self.progress, 1)
+        row.addWidget(self.cancel_button)
+        status.addLayout(row)
+        self.message_label = set_role(QLabel(""), "role", "body")
         self.message_label.setObjectName("importMessage")
         self.message_label.setWordWrap(True)
-        status = QHBoxLayout()
-        status.addWidget(self.stage_label)
-        status.addWidget(self.progress, 1)
-        status.addWidget(self.cancel_button)
 
-        layout = QVBoxLayout(self)
+        layout = page_layout(self)
         layout.addLayout(page_header(title, privacy))
         layout.addLayout(cards)
-        layout.addLayout(status)
+        layout.addWidget(self.status_card)
         layout.addWidget(self.message_label)
         layout.addStretch(1)
 
@@ -302,7 +349,6 @@ class SourcesPage(QWidget):
         for widget in (self.gmail_button, self.gmail_limit, self.file_card):
             widget.setEnabled(not running)
         self.cancel_button.setEnabled(running)
-        self.progress.setVisible(running)
-        self.stage_label.setVisible(running)
+        self.status_card.setVisible(running)
         if not running:
             self._task = None
