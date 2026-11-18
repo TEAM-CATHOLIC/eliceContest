@@ -132,11 +132,12 @@ class CandidateDetailPanel(QWidget):
             self.review_buttons[status] = button
             review.addWidget(button)
 
-        self.guide_button = QPushButton("로그인·복구 안내")
+        # 버튼 하나로 안내 창을 연다: 로그인·복구 링크 확인 → 탈퇴 전 조건 체크 → 에이전트 진행 (F-05·F-07)
+        self.guide_button = QPushButton("탈퇴 준비 (로그인·조건 확인)")
+        self.guide_button.setToolTip(
+            "로그인 방법과 비밀번호 재설정 링크를 보고, 탈퇴 전 조건을 확인한 뒤 AI 안내를 시작합니다."
+        )
         self.guide_button.clicked.connect(self.open_guide)
-        # 에이전트 진행도 안내 창을 거쳐 탈퇴 전 조건을 확인한 뒤에만 시작한다 (F-07)
-        self.agent_button = QPushButton("AI 에이전트로 탈퇴 진행")
-        self.agent_button.clicked.connect(self.open_guide)
         self.agent_hint = QLabel()
         self.agent_hint.setWordWrap(True)
         # 최종 탈퇴 버튼은 사용자가 누르므로 끝냈는지도 사용자가 알려 준다 → 로그인 세션 바로 삭제 (D-05)
@@ -147,7 +148,6 @@ class CandidateDetailPanel(QWidget):
         self.done_button.clicked.connect(lambda: self._request_status(CandidateStatus.DONE))
         actions = QHBoxLayout()
         actions.addWidget(self.guide_button)
-        actions.addWidget(self.agent_button)
         actions.addWidget(self.done_button)
 
         self.content = QWidget()
@@ -192,7 +192,6 @@ class CandidateDetailPanel(QWidget):
         self._fill_evidence(candidate)
         self._playbook = self._playbook_lookup(candidate.domain)
         self.guide_button.setEnabled(self._playbook is not None)
-        self.agent_button.setEnabled(self._playbook is not None)
         self.agent_hint.setText(
             ""
             if self._playbook
