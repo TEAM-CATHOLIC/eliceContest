@@ -100,10 +100,10 @@ def test_후보를_고르면_서비스_날짜_가입_방식_근거_메일이_보
 
     # then
     assert "샘플쇼핑" in panel.title_label.text()
-    assert "처음 메일 2024-03-11" in panel.dates_label.text()
+    assert "처음 메일 2024.03.11" in panel.dates_label.text()
     assert panel.login_label.text() == "메일에 적힌 가입 방식: 카카오"
     rows = [panel.evidence_list.item(i).text() for i in range(panel.evidence_list.count())]
-    assert rows[0] == "[가입·인증] 95% · 2024-03-11 · 가입을 환영합니다"
+    assert rows[0] == "2024.03.11  가입을 환영합니다\n[가입·인증] 95%"
     assert rows[1] == "[광고·초대] 60% · 메일 <m2@shop>"  # 가져온 메일에 없으면 ID만
 
 
@@ -154,7 +154,7 @@ def test_인벤토리에서_확정을_누르면_목록과_상세의_상태가_�
 
     # then
     assert page.model.status_of("shop.example.com") is CandidateStatus.CONFIRMED
-    assert page.detail.status_label.text() == "상태: 확정"
+    assert page.detail.status_label.text() == "확정"
     assert not page.detail.review_buttons[CandidateStatus.CONFIRMED].isEnabled()
 
 

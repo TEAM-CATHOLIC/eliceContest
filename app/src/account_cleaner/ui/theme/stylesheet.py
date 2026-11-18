@@ -1,7 +1,8 @@
 """앱 전체 스타일시트. 화면 코드는 색·크기를 직접 쓰지 않고 아래 속성만 붙인다.
 
 - 글자: `QLabel[role="title" | "titleSmall" | "subtitle" | "label" | "body" | "caption" | "muted" | "number"]`
-- 버튼: `QPushButton[variant="primary" | "soft" | "ghost"]` (없으면 흰 바탕 보조 버튼)
+- 버튼: `QPushButton[variant="primary" | "soft" | "ghost" | "choice"]` (없으면 흰 바탕 보조 버튼).
+  "choice"는 고른 값이 꺼진(disabled) 상태로 표시될 때 메인 색으로 보인다
 - 카드: `QFrame[card="true"]` 흰 바탕 둥근 상자, `QFrame[card="subtle"]` 옅은 회색 상자
 """
 
@@ -59,6 +60,9 @@ QPushButton[variant="primary"]:hover {{ background: {t.ACCENT_HOVER}; }}
 QPushButton[variant="primary"]:pressed {{ background: {t.ACCENT_PRESSED}; }}
 QPushButton[variant="primary"]:disabled {{ background: {t.GRAY_300}; color: {t.GRAY_700}; }}
 QPushButton[variant="soft"] {{
+    background: {t.ACCENT_SOFT}; color: {t.ACCENT}; border: 1px solid {t.ACCENT}; font-weight: 600;
+}}
+QPushButton[variant="choice"]:disabled {{
     background: {t.ACCENT_SOFT}; color: {t.ACCENT}; border: 1px solid {t.ACCENT}; font-weight: 600;
 }}
 QPushButton[variant="ghost"] {{ background: transparent; border: none; color: {t.GRAY_800}; }}

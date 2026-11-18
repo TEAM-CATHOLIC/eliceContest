@@ -8,12 +8,15 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -25,9 +28,10 @@ from account_cleaner.contracts import (
     ParsedMail,
     Playbook,
 )
+from account_cleaner.ui.candidates.delegate import STATUS_TONES, avatar_tint, display_name
 from account_cleaner.ui.candidates.guide import UrlOpener, WithdrawGuideDialog, default_open_url
 from account_cleaner.ui.candidates.model import CandidateStatus, evidence_label
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import Icon, pixmap, set_role, tokens
 
 MailLookup = Callable[[str], ParsedMail | None]
 PlaybookLookup = Callable[[str], Playbook | None]
@@ -105,70 +109,143 @@ class CandidateDetailPanel(QWidget):
         self._playbook_lookup = lookup
 
     def _build(self) -> None:
-        self.empty_label = QLabel("목록에서 후보를 고르면 근거와 상세가 여기에 보입니다.")
+        self.empty_label = set_role(
+            QLabel("목록에서 후보를 고르면 근거와 상세가 여기에 보입니다."), "role", "muted"
+        )
         self.empty_label.setWordWrap(True)
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.title_label = QLabel()
-        set_role(self.title_label, "role", "titleSmall")
+        # 머리: [첫 글자] 서비스 이름 / 도메인            [상태]
+        self.avatar = QLabel()
+        self.avatar.setFixedSize(44, 44)
+        self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label = set_role(QLabel(), "role", "titleSmall")
+        self.domain_label = set_role(QLabel(), "role", "caption")
+        self.domain_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.status_label = QLabel()
         self.status_label.setObjectName("statusBadge")
-        self.dates_label = QLabel()
-        self.login_label = QLabel()
-        self.score_label = QLabel()
-        self.score_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setFixedHeight(24)
+        names = QVBoxLayout()
+        names.setSpacing(2)
+        names.addWidget(self.title_label)
+        names.addWidget(self.domain_label)
+        header = QHBoxLayout()
+        header.setSpacing(tokens.SPACE_3)
+        header.addWidget(self.avatar)
+        header.addLayout(names, 1)
+        header.addWidget(self.status_label, 0, Qt.AlignmentFlag.AlignTop)
 
+        self.dates_label = set_role(QLabel(), "role", "caption")
+        self.dates_label.setWordWrap(True)
+        self.login_label = set_role(QLabel(), "role", "caption")
+        self.login_label.setWordWrap(True)
+
+        # 왜 계정이라고 봤나요? (NF-03)
+        self.score_label = set_role(QLabel(), "role", "body")
+        self.score_label.setWordWrap(True)
+        why = set_role(QFrame(), "card", "subtle")
+        why_layout = QVBoxLayout(why)
+        why_layout.setContentsMargins(14, 14, 14, 14)
+        why_layout.setSpacing(tokens.SPACE_2)
+        why_layout.addWidget(set_role(QLabel("왜 계정이라고 봤나요?"), "role", "label"))
+        why_layout.addWidget(self.score_label)
+
+        self.evidence_title = set_role(QLabel("근거 메일"), "role", "label")
         self.evidence_list = QListWidget()
         self.evidence_list.setObjectName("evidenceList")
+        self.evidence_list.setWordWrap(True)
+        self.evidence_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.evidence_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.evidence_list.setStyleSheet(
+            f"QListWidget#evidenceList {{ border: 1px solid {tokens.GRAY_300}; padding: 4px; }}"
+        )
         self.evidence_list.currentItemChanged.connect(self._on_evidence_changed)
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setPlaceholderText("근거 메일을 고르면 본문 앞부분이 보입니다.")
-        self.preview.setMaximumHeight(140)
+        self.preview.setFixedHeight(140)
+        self.preview.hide()
 
+        self.content = QWidget()
+        body = QVBoxLayout(self.content)
+        body.setContentsMargins(0, 0, tokens.SPACE_1, 0)
+        body.setSpacing(14)
+        body.addLayout(header)
+        details = QVBoxLayout()
+        details.setSpacing(2)
+        details.addWidget(self.dates_label)
+        details.addWidget(self.login_label)
+        body.addLayout(details)
+        body.addWidget(why)
+        evidence = QVBoxLayout()
+        evidence.setSpacing(tokens.SPACE_2)
+        evidence.addWidget(self.evidence_title)
+        evidence.addWidget(self.evidence_list, 1)
+        evidence.addWidget(self.preview)
+        body.addLayout(evidence)
+        body.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setObjectName("detailScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea#detailScroll, QScrollArea#detailScroll > QWidget > QWidget { background: transparent; }"
+        )
+        scroll.setWidget(self.content)
+
+        # 아래 고정: 내 계정 판단 → 탈퇴 준비 (강조 버튼은 하나만)
         self.review_buttons: dict[CandidateStatus, QPushButton] = {}
-        review = QHBoxLayout()
-        for status, text in REVIEW_BUTTONS:
-            button = QPushButton(text)
+        review = QGridLayout()
+        review.setSpacing(6)
+        for column, (status, text) in enumerate(REVIEW_BUTTONS):
+            button = set_role(QPushButton(text), "variant", "choice")
             button.clicked.connect(lambda _=False, s=status: self._request_status(s))
             self.review_buttons[status] = button
-            review.addWidget(button)
+            review.addWidget(button, 0, column)
 
         # 버튼 하나로 안내 창을 연다: 로그인·복구 링크 확인 → 탈퇴 전 조건 체크 → 에이전트 진행 (F-05·F-07)
-        self.guide_button = QPushButton("탈퇴 준비 (로그인·조건 확인)")
+        self.guide_button = set_role(QPushButton("탈퇴 준비하기"), "variant", "primary")
+        self.guide_button.setMinimumHeight(44)
         self.guide_button.setToolTip(
             "로그인 방법과 비밀번호 재설정 링크를 보고, 탈퇴 전 조건을 확인한 뒤 AI 안내를 시작합니다."
         )
         self.guide_button.clicked.connect(self.open_guide)
-        self.agent_hint = QLabel()
+        self.agent_hint = set_role(QLabel(), "role", "caption")
         self.agent_hint.setWordWrap(True)
         # 최종 탈퇴 버튼은 사용자가 누르므로 끝냈는지도 사용자가 알려 준다 → 로그인 세션 바로 삭제 (D-05)
-        self.done_button = QPushButton("탈퇴를 끝냈어요")
+        self.done_button = set_role(QPushButton("탈퇴를 끝냈어요"), "variant", "soft")
         self.done_button.setToolTip(
             "서비스에서 최종 탈퇴를 마쳤으면 눌러 주세요. 저장된 로그인도 지웁니다."
         )
         self.done_button.clicked.connect(lambda: self._request_status(CandidateStatus.DONE))
-        actions = QHBoxLayout()
+        lock = QLabel()
+        lock.setPixmap(pixmap(Icon.LOCK, tokens.GRAY_800, 13))
+        safety = QHBoxLayout()
+        safety.setSpacing(6)
+        safety.addStretch(1)
+        safety.addWidget(lock)
+        safety.addWidget(set_role(QLabel("최종 탈퇴 버튼은 직접 누르게 돼요"), "role", "caption"))
+        safety.addStretch(1)
+
+        self.actions = QWidget()
+        actions = QVBoxLayout(self.actions)
+        actions.setContentsMargins(0, tokens.SPACE_3, 0, 0)
+        actions.setSpacing(tokens.SPACE_2)
+        actions.addLayout(review)
         actions.addWidget(self.guide_button)
         actions.addWidget(self.done_button)
-
-        self.content = QWidget()
-        body = QVBoxLayout(self.content)
-        body.setContentsMargins(0, 0, 0, 0)
-        for widget in (self.title_label, self.status_label, self.dates_label, self.login_label):
-            body.addWidget(widget)
-        body.addWidget(QLabel("신뢰도 설명"))
-        body.addWidget(self.score_label)
-        body.addWidget(QLabel("데이터 근거 (메일)"))
-        body.addWidget(self.evidence_list, 1)
-        body.addWidget(self.preview)
-        body.addWidget(QLabel("내 계정이 맞나요?"))
-        body.addLayout(review)
-        body.addLayout(actions)
-        body.addWidget(self.agent_hint)
+        actions.addWidget(self.agent_hint)
+        actions.addLayout(safety)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.empty_label)
-        layout.addWidget(self.content, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.empty_label, 1)
+        layout.addWidget(scroll, 1)
+        layout.addWidget(self.actions)
+        self._scroll = scroll
 
     # --- 표시 ---
 
@@ -177,13 +254,23 @@ class CandidateDetailPanel(QWidget):
     ) -> None:
         self._candidate = candidate
         self.empty_label.setVisible(candidate is None)
-        self.content.setVisible(candidate is not None)
+        self._scroll.setVisible(candidate is not None)
+        self.actions.setVisible(candidate is not None)
         if candidate is None:
             return
-        self.title_label.setText(f"{candidate.service}   {candidate.domain}")
+        name = display_name(candidate.service)
+        background, foreground = avatar_tint(candidate.domain)
+        self.avatar.setText(name[:1])
+        self.avatar.setStyleSheet(
+            f"background: {background}; color: {foreground}; border-radius: 12px;"
+            " font-size: 18px; font-weight: 700;"
+        )
+        self.title_label.setText(name)
+        self.title_label.setToolTip(name)
+        self.domain_label.setText(candidate.domain)
         self.set_status(status or CandidateStatus.UNREVIEWED)
         self.dates_label.setText(
-            f"처음 메일 {candidate.first_seen:%Y-%m-%d} · 마지막 메일 {candidate.last_seen:%Y-%m-%d}"
+            f"처음 메일 {candidate.first_seen:%Y.%m.%d} · 마지막 메일 {candidate.last_seen:%Y.%m.%d}"
         )
         method = candidate.confirmed_login_method
         self.login_label.setVisible(method is not None)
@@ -191,8 +278,10 @@ class CandidateDetailPanel(QWidget):
             self.login_label.setText(f"메일에 적힌 가입 방식: {LOGIN_METHOD_LABELS[method]}")
         self.score_label.setText(explain_score(candidate))
         self._fill_evidence(candidate)
+        self.evidence_title.setText(f"근거 메일 {len(candidate.evidence)}통")
         self._playbook = self._playbook_lookup(candidate.domain)
         self.guide_button.setEnabled(self._playbook is not None)
+        self.agent_hint.setVisible(self._playbook is None)
         self.agent_hint.setText(
             ""
             if self._playbook
@@ -201,7 +290,13 @@ class CandidateDetailPanel(QWidget):
         )
 
     def set_status(self, status: CandidateStatus) -> None:
-        self.status_label.setText(f"상태: {status.label}")
+        status = CandidateStatus(status)
+        background, foreground = STATUS_TONES[status]
+        self.status_label.setText(status.label)
+        self.status_label.setStyleSheet(
+            f"background: {background}; color: {foreground}; border-radius: 12px;"
+            " padding: 0 10px; font-size: 12px; font-weight: 600;"
+        )
         self.done_button.setVisible(status is CandidateStatus.IN_PROGRESS)
         for s, button in self.review_buttons.items():
             button.setDown(False)
@@ -210,6 +305,7 @@ class CandidateDetailPanel(QWidget):
     def _fill_evidence(self, candidate: AccountCandidate) -> None:
         self.evidence_list.clear()
         self.preview.clear()
+        self.preview.hide()
         for evidence in sorted(candidate.evidence, key=lambda e: -e.probability):
             mail = self._mail_lookup(evidence.mail_id)
             label = evidence_label(evidence)
@@ -217,13 +313,26 @@ class CandidateDetailPanel(QWidget):
             if mail is None:
                 text = f"{head} · 메일 {evidence.mail_id}"
             else:
-                text = f"{head} · {mail.date:%Y-%m-%d} · {mail.subject}"
+                text = f"{mail.date:%Y.%m.%d}  {mail.subject}\n{head}"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, mail)
             self.evidence_list.addItem(item)
+        self._fit_evidence_height()
+
+    def _fit_evidence_height(self) -> None:
+        """근거 메일 목록은 안에서 스크롤하지 않고 내용만큼 키운다 (패널 전체가 스크롤된다)."""
+        rows = sum(self.evidence_list.sizeHintForRow(i) for i in range(self.evidence_list.count()))
+        frame = self.evidence_list.frameWidth() * 2 + 10  # 테두리 + 안쪽 여백(4px 위아래) + 여유
+        self.evidence_list.setFixedHeight(max(rows, 40) + frame)
+
+    def resizeEvent(self, event) -> None:  # 줄바꿈 높이는 폭에 따라 바뀐다
+        super().resizeEvent(event)
+        if self._candidate is not None:
+            self._fit_evidence_height()
 
     def _on_evidence_changed(self, current: QListWidgetItem | None, _previous) -> None:
         mail = current.data(Qt.ItemDataRole.UserRole) if current else None
+        self.preview.setVisible(current is not None)
         if mail is None:
             self.preview.setPlainText(
                 "가져온 메일에서 이 근거를 찾지 못했습니다." if current else ""

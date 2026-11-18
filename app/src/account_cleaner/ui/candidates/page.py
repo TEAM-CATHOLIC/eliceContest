@@ -3,7 +3,7 @@
 목록에서 고르면 오른쪽 상세 패널(#12)에 근거와 확인 버튼이 보인다.
 """
 
-from PySide6.QtCore import QItemSelection, Signal
+from PySide6.QtCore import QItemSelection, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner.contracts import AccountCandidate
+from account_cleaner.ui.candidates.delegate import CandidateDelegate
 from account_cleaner.ui.candidates.detail import CandidateDetailPanel
 from account_cleaner.ui.candidates.model import (
     CandidateFilter,
@@ -25,21 +26,37 @@ from account_cleaner.ui.candidates.model import (
     CandidateStatus,
     Role,
 )
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import set_role, tokens
 
 EMPTY_TEXT = "메일을 가져와 분석하면 계정 후보가 여기에 보입니다."
 
 
 class SummaryCard(QFrame):
-    def __init__(self, title: str) -> None:
+    """위쪽 숫자 카드. accent=True면 메인 색 바탕 (지금 할 일)."""
+
+    def __init__(self, title: str, accent: bool = False) -> None:
         super().__init__()
         self.setObjectName("summaryCard")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        set_role(self, "card", "accent" if accent else "true")
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(title))
-        self.value = QLabel("0")
-        set_role(self.value, "role", "number")
+        layout.setContentsMargins(18, tokens.SPACE_4, 18, tokens.SPACE_4)
+        layout.setSpacing(6)
+        self.title = set_role(QLabel(title), "role", "caption")
+        self.value = set_role(QLabel("0"), "role", "number")
+        if accent:
+            set_role(self.title, "accent")
+            set_role(self.value, "accent")
+        layout.addWidget(self.title)
         layout.addWidget(self.value)
+
+
+def headline(total: int, unreviewed: int) -> str:
+    """맨 위 한 줄: 지금 할 일을 문장으로."""
+    if total == 0:
+        return "계정 인벤토리"
+    if unreviewed == 0:
+        return "찾은 계정을 모두 확인했어요"
+    return f"확인할 계정이 {unreviewed}개 있어요"
 
 
 class InventoryPage(QWidget):
@@ -62,63 +79,97 @@ class InventoryPage(QWidget):
         self._refresh_counts()
 
     def _build(self) -> None:
-        title = QLabel("계정 인벤토리")
+        title = set_role(QLabel("계정 인벤토리"), "role", "title")
         title.setObjectName("pageTitle")
-        set_role(title, "role", "title")
+        self.title_label = title
+        self.subtitle_label = set_role(QLabel(), "role", "muted")
+        heading = QVBoxLayout()
+        heading.setSpacing(tokens.SPACE_1)
+        heading.addWidget(title)
+        heading.addWidget(self.subtitle_label)
 
         self.cards = {
-            "total": SummaryCard("발견된 계정"),
-            CandidateStatus.UNREVIEWED: SummaryCard("확인 필요"),
+            "total": SummaryCard("찾은 계정"),
+            CandidateStatus.UNREVIEWED: SummaryCard("확인 필요", accent=True),
             CandidateStatus.IN_PROGRESS: SummaryCard("정리 중"),
             CandidateStatus.DONE: SummaryCard("완료"),
         }
         cards = QHBoxLayout()
+        cards.setSpacing(tokens.SPACE_3)
         for card in self.cards.values():
-            cards.addWidget(card)
+            cards.addWidget(card, 1)
 
         self.tabs = QTabBar()
+        self.tabs.setExpanding(False)
+        self.tabs.setUsesScrollButtons(False)
         for f in CandidateFilter:
             self.tabs.addTab(f.label)
         self.tabs.currentChanged.connect(lambda i: self.proxy.set_filter(list(CandidateFilter)[i]))
+        tabs_box = QFrame()
+        tabs_box.setObjectName("filterTabs")
+        tabs_box.setStyleSheet(
+            f"QFrame#filterTabs {{ background: {tokens.GRAY_200}; border-radius: {tokens.RADIUS}px; }}"
+        )
+        tabs_layout = QHBoxLayout(tabs_box)
+        tabs_layout.setContentsMargins(2, 0, 2, 0)
+        tabs_layout.addWidget(self.tabs)
         self.sort_combo = QComboBox()
+        self.sort_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         for s in CandidateSort:
             self.sort_combo.addItem(s.label, s)
         self.sort_combo.currentIndexChanged.connect(
             lambda _: self.proxy.set_sort(self.sort_combo.currentData())
         )
         toolbar = QHBoxLayout()
-        toolbar.addWidget(self.tabs, 1)
+        toolbar.setSpacing(tokens.SPACE_2)
+        toolbar.addWidget(tabs_box)
+        toolbar.addStretch(1)
         toolbar.addWidget(self.sort_combo)
 
         self.list_view = QListView()
         self.list_view.setObjectName("candidateList")
         self.list_view.setModel(self.proxy)
+        self.list_view.setItemDelegate(CandidateDelegate(self.list_view))
+        self.list_view.setMouseTracking(True)
         self.list_view.setUniformItemSizes(True)
-        self.list_view.setAlternatingRowColors(True)
+        self.list_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_view.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
         self.list_view.selectionModel().selectionChanged.connect(self._on_selection)
-        self.empty_label = QLabel(EMPTY_TEXT)
+        self.empty_label = set_role(QLabel(EMPTY_TEXT), "role", "muted")
         self.empty_label.setWordWrap(True)
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        center = QVBoxLayout()
+        list_card = set_role(QFrame(), "card", "true")
+        list_card.setObjectName("candidateListCard")
+        center = QVBoxLayout(list_card)
+        center.setContentsMargins(tokens.SPACE_2, 14, tokens.SPACE_2, tokens.SPACE_2)
+        center.setSpacing(10)
+        toolbar.setContentsMargins(tokens.SPACE_2, 0, tokens.SPACE_2, 0)
         center.addLayout(toolbar)
-        center.addWidget(self.empty_label)
+        center.addWidget(self.empty_label, 1)
         center.addWidget(self.list_view, 1)
 
         self.detail = CandidateDetailPanel()
         self.detail.status_requested.connect(self.set_status)
         self.detail.agent_requested.connect(self.agent_requested)
         self.candidate_selected.connect(self._show_detail)
-        detail_box = QFrame()
+        detail_box = set_role(QFrame(), "card", "true")
         detail_box.setObjectName("candidateDetail")
-        detail_box.setFrameShape(QFrame.Shape.StyledPanel)
-        QVBoxLayout(detail_box).addWidget(self.detail)
+        detail_box.setMinimumWidth(360)
+        detail_box.setMaximumWidth(420)
+        detail_layout = QVBoxLayout(detail_box)
+        detail_layout.setContentsMargins(22, 22, 22, 22)
+        detail_layout.addWidget(self.detail)
 
         body = QHBoxLayout()
-        body.addLayout(center, 3)
-        body.addWidget(detail_box, 2)
+        body.setSpacing(tokens.SPACE_3)
+        body.addWidget(list_card, 1)
+        body.addWidget(detail_box, 0)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(title)
+        layout.setContentsMargins(tokens.SPACE_1, 0, 0, 0)
+        layout.setSpacing(tokens.SPACE_4)
+        layout.addLayout(heading)
         layout.addLayout(cards)
         layout.addLayout(body, 1)
 
@@ -169,6 +220,13 @@ class InventoryPage(QWidget):
             CandidateStatus.DONE,
         ):
             self.cards[status].value.setText(str(counts[status]))
+        total = self.model.rowCount()
+        self.title_label.setText(headline(total, counts[CandidateStatus.UNREVIEWED]))
+        self.subtitle_label.setText(
+            f"메일에서 계정 {total}개를 찾았어요 · 메일은 이 PC 밖으로 나가지 않아요"
+            if total
+            else "메일을 불러오면 가입한 서비스를 찾아 드려요"
+        )
         for i, (f, n) in enumerate(self.model.filter_counts().items()):
             self.tabs.setTabText(i, f"{f.label} {n}")
         empty = self.model.rowCount() == 0
