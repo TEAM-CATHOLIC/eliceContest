@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner.contracts import AccountCandidate, LoginMethod, Playbook
-from account_cleaner.ui.theme import set_role
+from account_cleaner.ui.theme import section_card, set_role, tokens
 
 UrlOpener = Callable[[str], None]
 
@@ -74,50 +74,70 @@ class WithdrawGuideDialog(QDialog):
         self._update_proceed()
 
     def _build(self) -> None:
+        self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
-        heading = QLabel(f"{self.playbook.service} ({self.candidate.domain})")
+        layout.setContentsMargins(tokens.SPACE_6, tokens.SPACE_6, tokens.SPACE_6, tokens.SPACE_5)
+        layout.setSpacing(tokens.SPACE_3)
+        heading = QLabel(self.playbook.service)
         set_role(heading, "role", "titleSmall")
-        layout.addWidget(heading)
+        domain = set_role(QLabel(self.candidate.domain), "role", "caption")
+        names = QVBoxLayout()
+        names.setSpacing(2)
+        names.addWidget(heading)
+        names.addWidget(domain)
+        layout.addLayout(names)
+        layout.addSpacing(tokens.SPACE_1)
 
-        layout.addWidget(QLabel("로그인 방법"))
+        login_card, login = section_card("1. 로그인 방법")
         self.login_lines = login_method_lines(self.playbook, self.candidate.confirmed_login_method)
         for line in self.login_lines:
-            label = QLabel(f"• {line}")
+            label = set_role(QLabel(f"• {line}"), "role", "body")
             label.setWordWrap(True)
-            layout.addWidget(label)
+            login.addWidget(label)
         self.login_button = QPushButton("로그인 페이지 열기")
         self.login_button.clicked.connect(lambda: self._open_url(self.playbook.login_url))
         self.reset_button = QPushButton("공식 비밀번호 재설정 열기")
         self.reset_button.clicked.connect(lambda: self._open_url(self.playbook.password_reset_url))
         links = QHBoxLayout()
+        links.setSpacing(tokens.SPACE_2)
         links.addWidget(self.login_button)
         links.addWidget(self.reset_button)
-        layout.addLayout(links)
-        hint = QLabel(
-            "링크는 평소 쓰는 브라우저로 열립니다. 비밀번호가 기억나지 않으면 먼저 재설정하세요."
+        login.addLayout(links)
+        hint = set_role(
+            QLabel(
+                "링크는 평소 쓰는 브라우저로 열립니다. 비밀번호가 기억나지 않으면 먼저 재설정하세요."
+            ),
+            "role",
+            "caption",
         )
         hint.setWordWrap(True)
-        layout.addWidget(hint)
+        login.addWidget(hint)
+        layout.addWidget(login_card)
 
-        layout.addWidget(QLabel("탈퇴 전에 확인하세요"))
+        conditions_card, conditions = section_card("2. 탈퇴 전에 확인하세요")
+        conditions.setSpacing(10)
         if not self.playbook.pre_withdraw_conditions:
-            layout.addWidget(QLabel(NO_CONDITIONS))
+            conditions.addWidget(set_role(QLabel(NO_CONDITIONS), "role", "muted"))
         self.condition_boxes: list[QCheckBox] = []
         for text in (*self.playbook.pre_withdraw_conditions, IRREVERSIBLE):
             box = QCheckBox(text)
+            box.setToolTip(text)
             box.toggled.connect(self._update_proceed)
             self.condition_boxes.append(box)
-            layout.addWidget(box)
+            conditions.addWidget(box)
+        layout.addWidget(conditions_card)
 
-        self.proceed_button = QPushButton("AI 에이전트로 탈퇴 진행")
+        self.proceed_button = set_role(QPushButton("AI 에이전트로 탈퇴 진행"), "variant", "primary")
         self.proceed_button.clicked.connect(self._proceed)
-        self.proceed_hint = QLabel()
+        self.proceed_hint = set_role(QLabel(), "role", "caption")
         close = QPushButton("닫기")
         close.clicked.connect(self.reject)
         actions = QHBoxLayout()
+        actions.setSpacing(tokens.SPACE_2)
         actions.addWidget(self.proceed_hint, 1)
         actions.addWidget(close)
         actions.addWidget(self.proceed_button)
+        layout.addSpacing(tokens.SPACE_1)
         layout.addLayout(actions)
 
     def all_confirmed(self) -> bool:

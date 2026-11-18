@@ -13,7 +13,16 @@ from account_cleaner.ui.main_window import (
     NavDelegate,
     PageId,
 )
-from account_cleaner.ui.theme import Icon, apply_theme, load_fonts, pixmap, set_role, tokens
+from account_cleaner.ui.theme import (
+    Icon,
+    apply_theme,
+    load_fonts,
+    page_header,
+    pixmap,
+    section_card,
+    set_role,
+    tokens,
+)
 from account_cleaner.ui.theme.icons import ICON_DIR
 from account_cleaner.ui.theme.stylesheet import build_stylesheet
 
@@ -115,3 +124,28 @@ def test_가져다_쓴_글꼴_아이콘_디자인_값의_라이선스를_함께_
     notices = (APP_DIR / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     for name in ("Pretendard", "Tabler Icons", "SEED Design", "Apache License"):
         assert name in notices
+
+
+def test_페이지_머리는_제목과_한_줄_설명_사이에_여백을_둔다(qapp):
+    # given
+    title, subtitle = QLabel("진행 기록"), QLabel("설명")
+
+    # when
+    layout = page_header(title, subtitle)
+
+    # then
+    assert layout.spacing() >= tokens.SPACE_2
+    assert title.property("role") == "title"
+    assert subtitle.property("role") == "muted"
+    assert subtitle.wordWrap()
+
+
+def test_구역_카드는_소제목과_넉넉한_안쪽_여백을_가진다(qapp):
+    # when
+    card, layout = section_card("서비스별 진행", kind="warning")
+
+    # then
+    assert card.property("card") == "warning"
+    assert layout.itemAt(0).widget().text() == "서비스별 진행"
+    margins = layout.contentsMargins()
+    assert min(margins.left(), margins.top(), margins.right()) >= tokens.SPACE_4

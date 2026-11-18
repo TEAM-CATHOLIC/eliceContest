@@ -13,7 +13,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -22,14 +21,13 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 
 from account_cleaner.contracts import AgentStatus
 from account_cleaner.storage import EventKind, HistoryEvent, Progress, StatusStore
 from account_cleaner.ui.candidates.model import CandidateStatus
-from account_cleaner.ui.theme import page_header, set_role
+from account_cleaner.ui.theme import page_header, page_layout, section_card, set_role, tokens
 
 RESULT_LABELS = {
     "started": "안내 중",
@@ -85,29 +83,27 @@ class HistoryPage(QWidget):
     def _build(self) -> None:
         title = QLabel("진행 기록")
         title.setObjectName("pageTitle")
-        set_role(title, "role", "title")
+        subtitle = QLabel("탈퇴 안내를 어디까지 했는지, 언제 무엇을 했는지 모아 봅니다.")
 
-        self.reminder_box = QFrame()
+        # 다시 알려 줄 서비스 (노란 알림 카드)
+        self.reminder_box, box = section_card(kind="warning")
         self.reminder_box.setObjectName("reminderBox")
-        set_role(self.reminder_box, "card", "true")
-        self.reminder_title = QLabel()
-        set_role(self.reminder_title, "role", "label")
+        self.reminder_title = set_role(QLabel(), "role", "label")
+        self.reminder_title.setWordWrap(True)
         self.reminder_list = QListWidget()
-        self.reminder_list.setMaximumHeight(110)
+        self.reminder_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.reminder_list.currentItemChanged.connect(lambda *_: self._update_buttons())
-        self.restart_button = QPushButton("다시 안내 시작")
+        self.restart_button = set_role(QPushButton("다시 안내 시작"), "variant", "primary")
         self.restart_button.clicked.connect(lambda: self._emit_selected(self.restart_requested))
         self.snooze_button = QPushButton("14일 뒤 다시 알림")
         self.snooze_button.clicked.connect(self.snooze_selected)
         self.done_button = QPushButton("탈퇴를 끝냈어요")
         self.done_button.clicked.connect(lambda: self._emit_selected(self.done_requested))
         buttons = QHBoxLayout()
+        buttons.setSpacing(tokens.SPACE_2)
         for button in (self.restart_button, self.snooze_button, self.done_button):
             buttons.addWidget(button)
         buttons.addStretch(1)
-        box = QVBoxLayout(self.reminder_box)
-        box.setContentsMargins(20, 18, 20, 18)
-        box.setSpacing(10)
         box.addWidget(self.reminder_title)
         box.addWidget(self.reminder_list)
         box.addLayout(buttons)
@@ -117,23 +113,34 @@ class HistoryPage(QWidget):
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.empty_label = QLabel(EMPTY_TEXT)
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setStretchLastSection(True)
+        header.setHighlightSections(False)
+        self.empty_label = set_role(QLabel(EMPTY_TEXT), "role", "muted")
         self.empty_label.setWordWrap(True)
+        table_card, table = section_card("서비스별 진행")
+        table.addWidget(self.empty_label)
+        table.addWidget(self.table, 1)
 
         self.event_list = QListWidget()
         self.event_list.setObjectName("eventList")
+        self.event_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.event_list.setWordWrap(True)
+        events_card, events = section_card("언제 무엇을 했는지")
+        events.addWidget(self.event_list, 1)
 
-        layout = QVBoxLayout(self)
-        layout.addLayout(page_header(title))
+        layout = page_layout(self)
+        layout.addLayout(page_header(title, subtitle))
         layout.addWidget(self.reminder_box)
-        layout.addWidget(QLabel("서비스별 진행"))
-        layout.addWidget(self.empty_label)
-        layout.addWidget(self.table, 2)
-        layout.addWidget(QLabel("언제 무엇을 했는지"))
-        layout.addWidget(self.event_list, 1)
+        layout.addWidget(table_card, 3)
+        layout.addWidget(events_card, 2)
+        events_card.setMinimumHeight(160)
 
     # --- 표시 ---
 
@@ -165,6 +172,8 @@ class HistoryPage(QWidget):
             f"탈퇴 화면까지 갔지만 아직 끝내지 않은 서비스가 {len(due)}곳 있어요. "
             "최종 탈퇴 버튼을 누르셨나요?"
         )
+        rows = sum(self.reminder_list.sizeHintForRow(i) for i in range(len(due)))
+        self.reminder_list.setFixedHeight(min(rows, 160) + 2 * self.reminder_list.frameWidth() + 2)
         if due:
             self.reminder_list.setCurrentRow(0)
         self._update_buttons()
@@ -184,6 +193,14 @@ class HistoryPage(QWidget):
                 self.table.setItem(row, col, QTableWidgetItem(value))
         self.empty_label.setVisible(not progress)
         self.table.setVisible(bool(progress))
+        # 5줄까지는 표 안에서 스크롤하지 않도록 높이를 확보한다 (그 이상은 스크롤)
+        shown = min(len(progress), 5)
+        self.table.setMinimumHeight(
+            self.table.horizontalHeader().sizeHint().height()
+            + shown * self.table.verticalHeader().defaultSectionSize()
+            + 2 * self.table.frameWidth()
+            + 2
+        )
 
     def _selected_domain(self) -> str | None:
         item = self.reminder_list.currentItem()

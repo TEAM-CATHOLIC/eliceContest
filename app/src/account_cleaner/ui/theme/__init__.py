@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
 
 from account_cleaner.ui.theme import tokens
 from account_cleaner.ui.theme.icons import Icon, icon, pixmap
@@ -16,7 +16,9 @@ __all__ = [
     "icon",
     "load_fonts",
     "page_header",
+    "page_layout",
     "pixmap",
+    "section_card",
     "set_role",
     "tokens",
 ]
@@ -77,3 +79,25 @@ def page_header(title: QLabel, subtitle: QLabel | None = None) -> QVBoxLayout:
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
     return layout
+
+
+def page_layout(page: QWidget) -> QVBoxLayout:
+    """페이지 바깥 여백·간격. 모든 화면이 같은 값을 쓴다."""
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(tokens.SPACE_1, 0, 0, 0)
+    layout.setSpacing(tokens.SPACE_4)
+    return layout
+
+
+def section_card(title: str | None = None, kind: str = "true") -> tuple[QFrame, QVBoxLayout]:
+    """흰 둥근 카드와 그 안의 세로 layout. title이 있으면 맨 위에 굵은 소제목을 단다.
+    kind: "true"(흰 카드) | "warning"(노란 알림 카드)"""
+    card = set_role(QFrame(), "card", kind)
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(tokens.SPACE_5, 18, tokens.SPACE_5, tokens.SPACE_5)
+    layout.setSpacing(tokens.SPACE_3)
+    if title:
+        heading = set_role(QLabel(title), "role", "label")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+    return card, layout
