@@ -7,8 +7,10 @@ D-05 규칙: 탈퇴를 끝낸 서비스의 로그인 세션은 바로 지우고,
 `SESSION_RETENTION`이 지나면 지운다.
 """
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 
 from account_cleaner.storage.db import Database, from_text, to_text
 
@@ -28,12 +30,50 @@ class Progress:
     completed_at: datetime | None
 
 
+class EventKind(StrEnum):
+    """진행 기록에 남기는 일."""
+
+    LABEL = "label"
+    """사용자 확인을 바꿈 (detail: 상태 값)"""
+    STARTED = "started"
+    FINISHED = "finished"
+    """에이전트 안내가 끝남 (detail: `AgentStatus` 값)"""
+    COMPLETED = "completed"
+    SNOOZED = "snoozed"
+    SESSION_CLEARED = "session_cleared"
+    ALL_SESSIONS_CLEARED = "all_sessions_cleared"
+
+
+@dataclass(frozen=True)
+class HistoryEvent:
+    domain: str
+    service: str
+    at: datetime
+    kind: EventKind
+    detail: str
+
+
+SERVICE_OF = (
+    "COALESCE((SELECT service FROM withdraw_progress WHERE domain = :domain),"
+    " (SELECT service FROM user_labels WHERE domain = :domain), :domain)"
+)
+
+
 class StatusStore:
     def __init__(self, db: Database) -> None:
         self._db = db
 
     def _now(self) -> str:
         return to_text(self._db.clock())
+
+    def _event(
+        self, conn: sqlite3.Connection, domain: str, kind: EventKind, detail: str = ""
+    ) -> None:
+        conn.execute(
+            f"INSERT INTO progress_events (domain, service, at, kind, detail)"
+            f" VALUES (:domain, {SERVICE_OF}, :at, :kind, :detail)",
+            {"domain": domain, "at": self._now(), "kind": kind.value, "detail": detail},
+        )
 
     # --- 사용자 확인 (F-04) ---
 
@@ -45,6 +85,7 @@ class StatusStore:
                 " status = excluded.status, updated_at = excluded.updated_at",
                 (domain, service, status, self._now()),
             )
+            self._event(conn, domain, EventKind.LABEL, status)
 
     def labels(self) -> dict[str, str]:
         rows = self._db.connection().execute("SELECT domain, status FROM user_labels")
@@ -66,6 +107,7 @@ class StatusStore:
                 "INSERT INTO sessions (domain, kept_since) VALUES (?, ?) ON CONFLICT(domain) DO NOTHING",
                 (domain, now),
             )
+            self._event(conn, domain, EventKind.STARTED)
 
     def agent_finished(self, domain: str, result: str, reached: bool) -> None:
         """에이전트가 끝남. 탈퇴 화면에 도착했으면(최종 버튼은 사용자 몫) 재알림을 잡는다."""
@@ -74,6 +116,7 @@ class StatusStore:
                 "UPDATE withdraw_progress SET last_result = ?, updated_at = ? WHERE domain = ?",
                 (result, self._now(), domain),
             )
+            self._event(conn, domain, EventKind.FINISHED, result)
             if reached:
                 due = to_text(self._db.clock() + REMINDER_DELAY)
                 conn.execute(
@@ -90,6 +133,7 @@ class StatusStore:
                 (self._now(), self._now(), domain),
             )
             conn.execute("DELETE FROM reminders WHERE domain = ?", (domain,))
+            self._event(conn, domain, EventKind.COMPLETED)
 
     def progress(self, domain: str) -> Progress | None:
         row = (
@@ -97,8 +141,10 @@ class StatusStore:
             .execute("SELECT * FROM withdraw_progress WHERE domain = ?", (domain,))
             .fetchone()
         )
-        if row is None:
-            return None
+        return None if row is None else self._progress_of(row)
+
+    @staticmethod
+    def _progress_of(row: sqlite3.Row) -> Progress:
         return Progress(
             row["domain"],
             row["service"],
@@ -123,6 +169,12 @@ class StatusStore:
                 "UPDATE reminders SET due_at = ? WHERE domain = ?",
                 (to_text(self._db.clock() + delay), domain),
             )
+            self._event(conn, domain, EventKind.SNOOZED, str(delay.days))
+
+    def reminders(self) -> dict[str, datetime]:
+        """재알림이 잡힌 서비스와 알릴 시각 (지난 것 포함)."""
+        rows = self._db.connection().execute("SELECT domain, due_at FROM reminders")
+        return {r["domain"]: from_text(r["due_at"]) for r in rows}
 
     # --- 로그인 세션 보관 (D-05) ---
 
@@ -138,9 +190,35 @@ class StatusStore:
 
     def session_cleared(self, domain: str) -> None:
         with self._db.transaction() as conn:
-            conn.execute("DELETE FROM sessions WHERE domain = ?", (domain,))
+            if conn.execute("DELETE FROM sessions WHERE domain = ?", (domain,)).rowcount:
+                self._event(conn, domain, EventKind.SESSION_CLEARED)
 
     def clear_all_sessions(self) -> None:
         """'저장된 로그인 모두 지우기' 뒤 기록도 비운다."""
         with self._db.transaction() as conn:
             conn.execute("DELETE FROM sessions")
+            conn.execute(
+                "INSERT INTO progress_events (domain, service, at, kind) VALUES ('*', '전체', ?, ?)",
+                (self._now(), EventKind.ALL_SESSIONS_CLEARED.value),
+            )
+
+    # --- 진행 기록 화면 ---
+
+    def all_progress(self) -> list[Progress]:
+        """에이전트 안내를 시작한 적 있는 서비스. 최근에 바뀐 것부터."""
+        rows = self._db.connection().execute(
+            "SELECT * FROM withdraw_progress ORDER BY updated_at DESC, domain"
+        )
+        return [self._progress_of(r) for r in rows]
+
+    def history(self, limit: int = 200) -> list[HistoryEvent]:
+        """최근 일부터."""
+        rows = self._db.connection().execute(
+            "SELECT * FROM progress_events ORDER BY at DESC, id DESC LIMIT ?", (limit,)
+        )
+        return [
+            HistoryEvent(
+                r["domain"], r["service"], from_text(r["at"]), EventKind(r["kind"]), r["detail"]
+            )
+            for r in rows
+        ]

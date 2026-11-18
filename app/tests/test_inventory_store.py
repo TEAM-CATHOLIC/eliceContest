@@ -81,11 +81,11 @@ def test_새_DB는_후보와_근거_메일_표까지_만들어진다(db):
     }
 
     # then
-    assert db.schema_version() == len(MIGRATIONS) == 2
+    assert db.schema_version() == len(MIGRATIONS)
     assert {"candidates", "evidence", "evidence_mails", "inventory_meta"} <= tables
 
 
-def test_버전1_DB는_사용자_확인을_지우지_않고_버전2로_올라간다(tmp_path):
+def test_버전1_DB는_사용자_확인을_지우지_않고_최신_버전으로_올라간다(tmp_path):
     # given
     path = tmp_path / "app.sqlite3"
     conn = sqlite3.connect(path)
@@ -100,7 +100,7 @@ def test_버전1_DB는_사용자_확인을_지우지_않고_버전2로_올라간
     db = Database(path)
 
     # then
-    assert db.schema_version() == 2
+    assert db.schema_version() == len(MIGRATIONS)
     assert db.connection().execute("SELECT status FROM user_labels").fetchone()[0] == "confirmed"
     db.close()
 
