@@ -20,6 +20,7 @@ from account_cleaner.browser.agent import BrowserAgent
 from account_cleaner.browser.agent import Playbook as EnginePlaybook
 from account_cleaner.browser.agent.models import AgentResult, Step
 from account_cleaner.browser.agent.models import AgentStatus as EngineStatus
+from account_cleaner.browser.chrome_process import attached_chrome
 from account_cleaner.contracts import (
     AgentEvent,
     AgentStatus,
@@ -65,6 +66,9 @@ def browser_closed(page: Any) -> bool:
     context = getattr(page, "context", None)
     if context is None:
         return False
+    browser = getattr(context, "browser", None)
+    if browser is not None and not browser.is_connected():  # Chrome 프로세스가 끝남
+        return True
     return all(p.is_closed() for p in context.pages)
 
 
@@ -82,27 +86,13 @@ def to_engine_playbook(playbook: Playbook) -> EnginePlaybook:
 
 @asynccontextmanager
 async def open_chrome_page(profile_dir: Path, headless: bool = False) -> AsyncIterator[Any]:
-    """설치된 Chrome을 앱 전용 프로필로 띄운다 (사용자의 기본 Chrome 프로필과 분리)."""
-    from playwright.async_api import Error as PlaywrightError
-    from playwright.async_api import async_playwright
+    """설치된 Chrome을 앱 전용 프로필로 띄운다 (사용자의 기본 Chrome 프로필과 분리).
 
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(
-            str(profile_dir),
-            channel="chrome",
-            headless=headless,
-            accept_downloads=False,
-            args=["--disable-sync", "--no-default-browser-check", "--no-first-run"],
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
-        try:
-            yield page
-        finally:
-            try:
-                await context.close()
-            except PlaywrightError:  # 사용자가 이미 창을 닫음
-                pass
+    Playwright가 직접 띄우지 않고 보통 프로그램처럼 띄운 뒤 연결한다. 자동화 표시가 없어야
+    Google 로그인이 막히지 않는다 (#64, `chrome_process`).
+    """
+    async with attached_chrome(profile_dir, headless) as page:
+        yield page
 
 
 class PlaywrightWithdrawAgent(WithdrawAgent):
