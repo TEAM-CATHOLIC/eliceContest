@@ -254,3 +254,54 @@ class TestProviders:
 
         # then
         assert analyzer is sentinel
+
+
+def test_실제_분석기_모듈이_빌드에_없으면_auto_모드는_가짜_분석기로_대신한다(monkeypatch):
+    # given: 실행파일에 account_cleaner.classifier가 빠진 상황 (#76)
+    monkeypatch.delenv("ACCOUNT_CLEANER_FAKE", raising=False)
+    monkeypatch.setitem(
+        providers._REAL, "analyzer", ("account_cleaner._없는_모듈", "create_analyzer")
+    )
+
+    # when
+    analyzer = providers.get_analyzer()
+
+    # then
+    assert isinstance(analyzer, FakeAnalyzer)
+
+
+def test_실제_구현을_강제했는데_모듈이_없으면_그대로_실패한다(monkeypatch):
+    # given
+    monkeypatch.setenv("ACCOUNT_CLEANER_FAKE", "none")
+    monkeypatch.setitem(
+        providers._REAL, "analyzer", ("account_cleaner._없는_모듈", "create_analyzer")
+    )
+
+    # when / then
+    with pytest.raises(ImportError):
+        providers.get_analyzer()
+
+
+def test_self_test는_providers가_부르는_모듈이_모두_있는지_확인한다():
+    # given
+    from account_cleaner.core.self_test import check_providers
+
+    # when
+    check = check_providers()
+
+    # then
+    assert check.ok
+    assert "account_cleaner.classifier" in check.detail
+
+
+def test_빌드_설정은_문자열로_불러오는_실제_구현_모듈을_직접_넣는다():
+    # given: PyInstaller는 importlib.import_module("...")을 따라가지 못한다 (#76)
+    from pathlib import Path
+
+    spec = (Path(__file__).resolve().parents[1] / "packaging" / "account_cleaner.spec").read_text(
+        encoding="utf-8"
+    )
+
+    # then
+    for module, _attr in providers._REAL.values():
+        assert f'"{module}"' in spec, module
