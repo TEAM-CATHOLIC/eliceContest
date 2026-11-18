@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
+from PySide6.QtWidgets import QApplication, QMessageBox, QStyle, QSystemTrayIcon, QWidget
 
 from account_cleaner import providers
 from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus
@@ -26,6 +26,7 @@ from account_cleaner.ui.agent_page import AgentPage
 from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
+from account_cleaner.ui.history_page import HistoryPage
 from account_cleaner.ui.main_window import APP_TITLE, MainWindow, PageId
 from account_cleaner.ui.session_cleaner import SessionCleaner
 from account_cleaner.ui.sources_page import SourcesPage
@@ -184,6 +185,75 @@ def show_cleanup_result(window: MainWindow, domains: list[str]) -> None:
         )
 
 
+def restart_from_history(
+    window: MainWindow,
+    inventory: InventoryPage,
+    agent_page: AgentPage,
+    store: StatusStore,
+    domain: str,
+) -> None:
+    """재알림의 '다시 안내 시작'. 인벤토리에 후보가 없어도(메일을 다시 안 불러옴) 플레이북으로 시작한다."""
+    candidate = inventory.model.candidate_of(domain)
+    if candidate is not None:
+        start_agent_for(window, inventory, agent_page, candidate, store)
+        return
+    playbook = agent_page.playbook_for_domain(domain)
+    if playbook is None:
+        return
+    window.show_page(PageId.AGENT)
+    if agent_page.start_for(playbook.id):
+        agent_page.current_domain = domain
+        store.agent_started(domain, playbook.service)
+
+
+def complete_from_history(
+    inventory: InventoryPage,
+    store: StatusStore,
+    cleaner: SessionCleaner | None,
+    history: HistoryPage,
+    domain: str,
+) -> None:
+    """재알림의 '탈퇴를 끝냈어요'. 인벤토리에 후보가 있으면 목록 상태도 함께 바꾼다."""
+    if inventory.model.service_of(domain) is not None:
+        inventory.set_status(domain, CandidateStatus.DONE)  # → status_changed → record_status
+    else:
+        progress = store.progress(domain)
+        service = progress.service if progress else domain
+        record_status(store, cleaner, domain, service, CandidateStatus.DONE)
+    history.refresh()
+
+
+def reminder_message(store: StatusStore) -> str | None:
+    """앱을 켰을 때 알릴 문장. 알릴 서비스가 없으면 None."""
+    due = store.due_reminders()
+    if not due:
+        return None
+    services = {p.domain: p.service for p in store.all_progress()}
+    first = services.get(due[0], due[0])
+    more = f" 외 {len(due) - 1}곳" if len(due) > 1 else ""
+    return f"{first}{more}의 탈퇴를 아직 끝내지 않았어요. 진행 기록에서 확인해 주세요."
+
+
+def notify_reminders(window: MainWindow, store: StatusStore) -> QSystemTrayIcon | None:
+    """재알림 대상이 있으면 시스템 알림을 띄우고 진행 기록 화면을 연다 (F-08)."""
+    text = reminder_message(store)
+    if text is None:
+        return None
+    window.show_page(PageId.HISTORY)
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        window.statusBar().showMessage(text, 30_000)
+        return None
+    icon = window.windowIcon()
+    if icon.isNull():
+        icon = window.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
+    tray = QSystemTrayIcon(icon, window)
+    tray.setToolTip(APP_TITLE)
+    tray.messageClicked.connect(lambda: window.show_page(PageId.HISTORY))
+    tray.show()
+    tray.showMessage("탈퇴 마무리 알림", text)
+    return tray
+
+
 def encryption_status(key: LoadedKey | None) -> str:
     if key is None:
         return "미적용 (근거 메일 저장 안 함)"
@@ -279,10 +349,21 @@ def main() -> int:
     window.set_page(PageId.SOURCES, sources)
     window.set_page(PageId.INVENTORY, inventory)
     window.set_page(PageId.AGENT, agent_page)
+    history = HistoryPage(store)
+    window.set_page(PageId.HISTORY, history)
+    history.restart_requested.connect(
+        lambda domain: restart_from_history(window, inventory, agent_page, store, domain)
+    )
+    history.done_requested.connect(
+        lambda domain: complete_from_history(inventory, store, cleaner, history, domain)
+    )
+    agent_page.run_finished.connect(lambda _event: history.refresh())
+    cleaner.cleared.connect(lambda _domains: history.refresh())
     app.aboutToQuit.connect(BackgroundTask.shutdown_all)
     window.show()
     QTimer.singleShot(0, lambda: warn_if_chrome_missing(window))
     QTimer.singleShot(0, cleaner.clear_due)  # 보관 기한(14일)이 지난 세션
+    QTimer.singleShot(0, lambda: notify_reminders(window, store))
     if saved is not None and saved.mails_lost:
         QTimer.singleShot(0, lambda: QMessageBox.information(window, "근거 메일", MAILS_LOST_TEXT))
     if args.import_file:

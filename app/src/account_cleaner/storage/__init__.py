@@ -2,6 +2,14 @@
 
 from account_cleaner.storage.db import Database
 from account_cleaner.storage.inventory import InventoryStore, SavedInventory
-from account_cleaner.storage.status import Progress, StatusStore
+from account_cleaner.storage.status import EventKind, HistoryEvent, Progress, StatusStore
 
-__all__ = ["Database", "InventoryStore", "Progress", "SavedInventory", "StatusStore"]
+__all__ = [
+    "Database",
+    "EventKind",
+    "HistoryEvent",
+    "InventoryStore",
+    "Progress",
+    "SavedInventory",
+    "StatusStore",
+]

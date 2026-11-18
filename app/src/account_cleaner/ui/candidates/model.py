@@ -167,6 +167,9 @@ class CandidateListModel(QAbstractListModel):
     def status_of(self, domain: str) -> CandidateStatus | None:
         return next((r.status for r in self._rows if r.candidate.domain == domain), None)
 
+    def candidate_of(self, domain: str) -> AccountCandidate | None:
+        return next((r.candidate for r in self._rows if r.candidate.domain == domain), None)
+
     def service_of(self, domain: str) -> str | None:
         return next((r.candidate.service for r in self._rows if r.candidate.domain == domain), None)
 

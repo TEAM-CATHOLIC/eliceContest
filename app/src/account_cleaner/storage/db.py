@@ -71,6 +71,18 @@ MIGRATIONS: list[str] = [
         preview  BLOB NOT NULL
     );
     """,
+    # 3: 진행 기록 (#16). 언제 무엇을 했는지만 남긴다 (메일 내용 없음).
+    """
+    CREATE TABLE progress_events (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain   TEXT NOT NULL,
+        service  TEXT NOT NULL,
+        at       TEXT NOT NULL,
+        kind     TEXT NOT NULL,
+        detail   TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX progress_events_at ON progress_events (at);
+    """,
 ]
 
 
