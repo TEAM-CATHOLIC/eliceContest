@@ -48,6 +48,8 @@ MAX_MENU_TRIES = 2
 LOGIN = re.compile(r"로그인|log\s*in|sign\s*in", re.IGNORECASE)
 """로그아웃 상태의 로그인 진입점"""
 MAX_STEPS = 12
+SKIPPED_SCHEMES = ("mailto", "tel", "sms", "data", "blob")
+"""메일·전화 앱을 여는 링크는 후보에서 뺀다"""
 CLICK_TIMEOUT_MS = 5_000
 """Playwright 기본 30초 대신. 가려진 요소를 오래 붙잡지 않는다"""
 MAX_TEXT = 80
@@ -141,6 +143,12 @@ async def extract_elements(
     for index, raw in infos:
         if len(extracted) >= MAX_CANDIDATES:
             break
+        href = str(raw.get("href", ""))
+        scheme = urlparse(href).scheme.lower()
+        if scheme in SKIPPED_SCHEMES:
+            continue
+        if scheme not in ("http", "https"):
+            href = ""  # javascript:fnLogin() 같은 링크는 주소 이동이 아니라 버튼처럼 다룬다 (#79, flyasiana)
         text = redact_for_llm(str(raw.get("text", "")), private_values)[:MAX_TEXT]
         aria = redact_for_llm(str(raw.get("ariaLabel", "")), private_values)[:MAX_TEXT]
         if not text and not aria:
@@ -153,9 +161,7 @@ async def extract_elements(
             role=str(raw.get("role", "")),
             href_path=redact_for_llm(str(raw.get("hrefPath", "")), private_values)[:160],
         )
-        extracted.append(
-            ExtractedElement(candidate, collection.nth(index), str(raw.get("href", "")))
-        )
+        extracted.append(ExtractedElement(candidate, collection.nth(index), href))
     return extracted
 
 
@@ -290,8 +296,9 @@ class GenericNavigator:
             if chosen.href and not (
                 self.policy.is_url_allowed(chosen.href) or self.policy.is_auth_url(chosen.href)
             ):
+                host = urlparse(chosen.href).hostname or chosen.href[:40]
                 return self._failed(
-                    attempt, current_url, "허용되지 않은 도메인 링크를 차단했습니다"
+                    attempt, current_url, f"허용되지 않은 도메인 링크를 차단했습니다 ({host})"
                 )
             fingerprint = f"{current_url}|{chosen.fingerprint}"
             if fingerprint in self.visited:
