@@ -95,6 +95,8 @@ class SidebarFooter(QFrame):
     """사이드바 아래 카드: 상태 줄(엔진 암호화 등)과 "저장된 로그인 모두 지우기" (D-05)."""
 
     clear_logins_requested = Signal()
+    api_key_requested = Signal()
+    """`AI 키 설정` — 범용 AI 안내용 Anthropic API 키 입력 창 (#81)"""
 
     def __init__(self) -> None:
         super().__init__()
@@ -120,6 +122,12 @@ class SidebarFooter(QFrame):
             "AI 안내용 Chrome에 남은 로그인을 지웁니다. 평소 쓰는 Chrome은 그대로입니다."
         )
         self.clear_logins_button.clicked.connect(self.clear_logins_requested)
+        self.api_key_button = QPushButton("AI 키 설정")
+        self.api_key_button.setToolTip(
+            "처음 보는 사이트를 안내하는 AI용 Anthropic API 키를 넣습니다."
+        )
+        self.api_key_button.clicked.connect(self.api_key_requested)
+        layout.addWidget(self.api_key_button)
         layout.addWidget(self.clear_logins_button)
         self.set_status("엔진 암호화", "미정")
 
@@ -127,6 +135,8 @@ class SidebarFooter(QFrame):
         """상태 줄(이름 / 값 두 줄)을 추가하거나 값을 바꾼다. 값은 줄바꿈되므로 길어도 잘리지 않는다."""
         label = self._rows.get(name)
         if label is None:
+            if self._rows:
+                self._rows_box.addSpacing(6)  # 상태 줄 묶음 사이 여백
             self._rows_box.addWidget(set_role(QLabel(name), "role", "caption"))
             label = set_role(QLabel(), "role", "muted")
             label.setWordWrap(True)
