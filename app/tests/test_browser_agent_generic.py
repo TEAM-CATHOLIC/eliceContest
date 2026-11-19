@@ -13,7 +13,14 @@ class FakeElement:
     async def evaluate(self, _script):
         return self.data
 
-    async def click(self):
+    async def dispatch_event(self, _event):
+        self.page.dispatched.append(self.data["text"])
+        if self.data.get("next") is not None:
+            self.page.elements = self.data["next"]
+
+    async def click(self, **_kwargs):
+        if self.data.get("covered"):
+            raise TimeoutError("다른 요소가 가림")
         self.page.clicks.append(self.data["text"])
         if self.data.get("next") is not None:
             self.page.elements = self.data["next"]
@@ -39,6 +46,7 @@ class FakePage:
         self.elements = elements
         self.clicks = []
         self.gotos = []
+        self.dispatched = []
 
     def locator(self, selector):
         return FakeCollection(self, selector == INTERACTIVE_SELECTOR)
@@ -349,3 +357,47 @@ def test_메뉴는_최대_두_개까지만_열어_보고_그래도_없으면_실
     # then
     assert page.clicks == ["메뉴 0", "메뉴 1"]
     assert result.status is AgentStatus.FAILED
+
+
+def test_다른_요소에_가린_링크는_30초_기다리지_않고_그_주소로_바로_이동한다():
+    # given (#79, inflearn): 펼친 사용자 메뉴·고정 헤더가 대시보드 링크를 가림
+    dashboard = element("대시보드", href="https://example.com/users/me/dashboard")
+    dashboard["covered"] = True
+    page = FakePage([dashboard])
+    selector = FakeSelector(0, None)
+
+    # when
+    run(BrowserAgent(playbook(), next_click_selector=selector).run(page))
+
+    # then
+    assert page.gotos[-1] == "https://example.com/users/me/dashboard"
+
+
+def test_가린_버튼은_그_요소에_직접_클릭_이벤트를_보낸다():
+    # given
+    final = [element("회원 탈퇴하기", tag="button")]
+    menu = element("내 메뉴", tag="button", next=final)
+    menu["covered"] = True
+    page = FakePage([menu])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector(0)).run(page))
+
+    # then
+    assert page.dispatched == ["내 메뉴"]
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+
+
+def test_가린_외부_링크는_주소로_이동하지_않는다():
+    # given: 허용 도메인 밖 링크는 대체 이동에서도 막힌다
+    item = element("Account settings")
+    item["covered"] = True
+    item["href"] = "https://evil.example/account"
+    item["hrefPath"] = "https://evil.example/account"
+    page = FakePage([item])
+
+    # when
+    run(BrowserAgent(playbook(), next_click_selector=FakeSelector(0)).run(page))
+
+    # then: 시작 주소 말고는 이동하지 않는다
+    assert "https://evil.example/account" not in page.gotos

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -10,6 +11,8 @@ from .llm import NextClickSelector
 from .models import Action, AgentResult, AgentStatus, Playbook, Step
 from .policy import PolicyViolation, SafetyPolicy
 from .redaction import redact_sensitive
+
+log = logging.getLogger(__name__)
 
 IS_LINK_SCRIPT = "e => e.tagName === 'A' || e.getAttribute('role') === 'link'"
 """메뉴 클릭 단계의 요소가 링크인지 (최종 탈퇴는 보통 폼 제출 버튼이다)."""
@@ -191,9 +194,11 @@ class BrowserAgent:
             return AgentResult(
                 AgentStatus.BLOCKED, self.playbook.service_id, str(exc), current_step, url, "policy"
             )
-        except Exception as exc:  # noqa: BLE001 — Playwright 오류를 데스크톱용 결과로 정규화
+        except Exception as exc:
             url = await self._current_url(page)
-            message = redact_sensitive(str(exc))
+            # Playwright 호출 기록(수십 줄)은 로그에만, 화면에는 첫 줄만
+            log.warning("에이전트 실행 오류", exc_info=True)
+            message = redact_sensitive(str(exc).strip().splitlines()[0] if str(exc).strip() else "")
             await self._emit({"status": "failed", "reason": message, "url": url})
             return AgentResult(
                 AgentStatus.FAILED, self.playbook.service_id, message, current_step, url, "runtime"
