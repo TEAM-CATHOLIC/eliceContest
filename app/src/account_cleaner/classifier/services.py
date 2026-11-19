@@ -33,7 +33,30 @@ def resolve_service(mail):
         if "제로투히어로" in text:
             return "제로투히어로", "zerotohero.co.kr"
         return None
+    if domain in PERSONAL_MAIL:
+        # Mail from a person's mailbox is not mail from that mailbox provider's service.
+        return None
     return SERVICES.get(domain, (domain, domain))
+
+
+PERSONAL_MAIL = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "naver.com",
+        "hanmail.net",
+        "daum.net",
+        "nate.com",
+        "kakao.com",
+        "hotmail.com",
+        "outlook.com",
+        "live.com",
+        "yahoo.com",
+        "yahoo.co.kr",
+        "icloud.com",
+        "me.com",
+    }
+)
 
 
 CAFE24_STORES = {

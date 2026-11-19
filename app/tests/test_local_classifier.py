@@ -153,6 +153,16 @@ def test_서로_다른_종류의_근거는_점수를_올리고_같은_종류의_
     assert one.score < mixed.score < 1
 
 
+def test_개인_메일_주소에서_온_메일은_그_메일_서비스의_계정_후보로_묶지_않는다():
+    # given / when
+    result = analyzer({"1": ("activity", "unknown"), "2": ("signup", "unknown")}).analyze(
+        [mail(1, domain="gmail.com"), mail(2)]
+    )
+    # then
+    assert [c.domain for c in result] == ["sample.example"]
+    assert resolve_service(mail(1, domain="navercorp.com")) == ("네이버", "naver.com")
+
+
 def test_빈입력과_취소를_지원한다():
     # given
     a = analyzer({})

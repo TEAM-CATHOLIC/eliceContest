@@ -21,6 +21,12 @@ def mail(body, domain="demo.example", date=None, subject="탈퇴 안내", key="n
         "회원탈퇴가 완료되었습니다.",
         "계정이 삭제되었습니다.",
         "고객님의 계정이 안전하게 파기되었습니다.",
+        "회원님의 탈퇴가 정상적으로 처리되었습니다.",
+        "계정 삭제가 완료됐어요.",
+        "탈퇴안내 고객님 귀하 귀사의 서비스 사용이 해지되었습니다.",
+        "Your account has been permanently deleted.",
+        "This email confirms that your Devhub account was deleted.",
+        "We've closed your account. Your profile is no longer visible.",
     ],
 )
 def test_새로운_동일서비스의_명시적_탈퇴완료를_근거로_반환한다(text):
@@ -38,6 +44,11 @@ def test_새로운_동일서비스의_명시적_탈퇴완료를_근거로_반환
         "회원 탈퇴가 완료되지 않았습니다.",
         "구독 해지가 완료되었습니다.",
         "개인정보처리방침 안내입니다.",
+        "이모티콘 플러스가 해지되었습니다. 해지 완료되었습니다.",
+        "회원 탈퇴 신청에 따라 30일 후 계정이 삭제됩니다.",
+        "Your account will be permanently deleted in 30 days.",
+        "We received your account deletion request.",
+        "Your subscription has been cancelled. Your account remains active.",
     ],
 )
 def test_요청_예정_조건문_구독해지는_완료로_처리하지않는다(text):

@@ -29,6 +29,22 @@ def load_rows(path):
     return rows
 
 
+DELETED_COMPLETED = re.compile(
+    # Explicit "already done" wording only: scheduled, requested and conditional forms do not match.
+    r"(?:회원\s*)?탈퇴(?:\s*처리)?(?:가|는)?\s*(?:정상(?:적으로)?\s*)?(?:완료|처리)\s*"
+    r"(?:되었습니다|됐습니다|되었어요|됐어요)|"
+    r"계정(?:이|은|의)?\s*(?:영구\s*)?(?:삭제\s*처리(?:가)?\s*되었습니다|"
+    r"삭제(?:가)?\s*(?:되었습니다|되었어요|완료(?:되었습니다|됐습니다|됐어요))|"
+    r"안전하게\s*파기되었습니다)|"
+    r"탈퇴\s*안내[\s\S]{0,80}(?:사용|이용)이\s*해지되었습니다|"
+    r"(?i:\baccount\b[^.\n]{0,40}\b(?:has been|was)\s+(?:successfully\s+|permanently\s+)*"
+    r"(?:deleted|closed|removed)\b)|"
+    r"(?i:\bwe(?:'ve|’ve| have)?\s+(?:permanently\s+)?(?:deleted|closed)\s+your\b[^.\n]{0,20}"
+    r"\baccount\b)|"
+    r"(?i:\baccount deletion (?:is )?complete)"
+)
+
+
 def stage_hint(subject, body):
     """Supplementary deterministic hint, independent from six-way ML prediction."""
     text = subject + "\n" + body[:1600]
@@ -41,7 +57,7 @@ def stage_hint(subject, body):
     if re.search(
         r"(?:계정.{0,30}(?:삭제처리 되었|삭제되었습니다|안전하게 파기되었)|회원 탈퇴(?:가| 처리가)? 완료)",
         text,
-    ):
+    ) or DELETED_COMPLETED.search(text):
         return "account_deleted_completed"
     if re.search(r"인증.{0,15}(?:필수적인 단계|마쳐야|완료해야)|이메일.{0,5}인증(?:하기|해)", text):
         return "requested"

@@ -6,13 +6,8 @@ from datetime import datetime
 
 from account_cleaner.contracts import ParsedMail
 
+from .model import DELETED_COMPLETED as _COMPLETED
 from .services import resolve_service
-
-_COMPLETED = re.compile(
-    r"(?:회원\s*탈퇴(?:\s*처리)?(?:가|는)?\s*완료(?:되었습니다|됐습니다|되었어요)|"
-    r"계정(?:이|은|의)?\s*(?:영구\s*)?(?:삭제\s*처리(?:가)?\s*되었습니다|"
-    r"삭제되었습니다|삭제되었어요|안전하게\s*파기되었습니다))"
-)
 
 
 @dataclass(frozen=True)
