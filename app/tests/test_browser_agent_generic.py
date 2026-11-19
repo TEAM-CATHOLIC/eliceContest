@@ -401,3 +401,45 @@ def test_가린_외부_링크는_주소로_이동하지_않는다():
 
     # then: 시작 주소 말고는 이동하지 않는다
     assert "https://evil.example/account" not in page.gotos
+
+
+def test_javascript_링크는_도메인_차단하지_않고_버튼처럼_누른다():
+    # given (#79, flyasiana): <a href="javascript:fnLogin()">마이페이지</a>
+    final = [element("회원 탈퇴하기", tag="button")]
+    item = element("마이페이지", href="javascript:fnMyPage()", next=final)
+    item["hrefPath"] = ""
+    page = FakePage([item])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector(0)).run(page))
+
+    # then
+    assert page.clicks == ["마이페이지"]
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+
+
+def test_메일_전화_링크는_후보에서_뺀다():
+    # given
+    page = FakePage(
+        [element("고객센터 메일", href="mailto:help@example.com"), element("전화", href="tel:1588")]
+    )
+    selector = FakeSelector(None)
+
+    # when
+    run(BrowserAgent(playbook(), next_click_selector=selector).run(page))
+
+    # then
+    assert selector.payloads == [] or selector.payloads[0]["candidates"] == ()
+
+
+def test_외부_도메인을_막으면_어느_도메인인지_알려_준다():
+    # given
+    item = element("Account settings")
+    item["href"] = "https://evil.example/account"
+    page = FakePage([item])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector(0)).run(page))
+
+    # then
+    assert "evil.example" in result.message
