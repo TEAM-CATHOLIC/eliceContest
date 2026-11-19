@@ -340,6 +340,9 @@ def main() -> int:
     window.sidebar_footer.set_status(ENCRYPTION_STATUS, encryption_status(key))
     agent_page = AgentPage(paths.browser_profile)
     agent_page.run_finished.connect(lambda event: record_agent_result(agent_page, store, event))
+    agent_page.running_changed.connect(
+        lambda running: window.set_nav_badge(PageId.AGENT, "진행" if running else None)
+    )
     cleaner = SessionCleaner(
         store,
         paths.browser_profile,

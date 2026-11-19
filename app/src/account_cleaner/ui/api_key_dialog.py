@@ -30,19 +30,20 @@ from account_cleaner.browser.agent.llm import (
     delete_api_key,
     save_api_key,
 )
-from account_cleaner.ui.theme import set_role, tokens
+from account_cleaner.ui.theme import section_card, set_role, tokens
 
 STATUS_TEXT = {
     "env": "켜짐 (환경변수 ANTHROPIC_API_KEY 사용 중 — 저장한 키보다 먼저 쓰입니다)",
     "keychain": "켜짐 (키체인에 저장됨)",
     None: "꺼짐 (API 키 없음)",
 }
-GUIDE = (
-    "플레이북이 없는 처음 보는 사이트는 AI가 화면의 링크·버튼 목록만 보고 다음에 누를 곳을 고릅니다. "
-    "이때 Anthropic API를 쓰므로 본인 키가 필요합니다.\n"
-    "발급: Anthropic Console → Connect to the Claude API → Somewhere else. "
-    "키는 이 PC의 키체인에만 저장되고 다른 곳으로 보내지 않습니다."
+GUIDE_LINES = (
+    "플레이북이 없는 처음 보는 사이트는 AI가 화면의 링크·버튼 목록만 보고 다음에 누를 곳을 고릅니다.",
+    "이때 Anthropic API를 쓰므로 본인 키가 필요합니다.",
 )
+ISSUE_STEPS = "발급: Anthropic Console → Connect to the Claude API → Somewhere else"
+PRIVACY_NOTE = "키는 이 PC의 키체인에만 저장되고, 파일이나 로그에는 남기지 않습니다."
+DIALOG_WIDTH = 520
 
 
 def ai_status_text(source: str | None) -> str:
@@ -64,19 +65,30 @@ class ApiKeyDialog(QDialog):
         super().__init__(parent)
         self._save, self._delete, self._source = save, delete, source
         self.setWindowTitle("AI 안내 키 설정")
-        self.setMinimumWidth(480)
         self._build()
         self._refresh()
+        self._fit_height()
 
     def _build(self) -> None:
+        # 줄바꿈 글(QLabel wordWrap)은 폭이 정해져야 높이를 제대로 계산한다 → 폭 고정, 높이는 내용만큼
+        self.setFixedWidth(DIALOG_WIDTH)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(tokens.SPACE_6, tokens.SPACE_6, tokens.SPACE_6, tokens.SPACE_5)
-        layout.setSpacing(tokens.SPACE_3)
+        layout.setSpacing(tokens.SPACE_4)
         layout.addWidget(set_role(QLabel("AI 안내 키 설정"), "role", "titleSmall"))
-        for paragraph in GUIDE.split("\n"):
-            guide = set_role(QLabel(paragraph), "role", "muted")
-            guide.setWordWrap(True)
-            layout.addWidget(guide)
+
+        guide_card, guide = section_card()  # 창 바탕(회색) 위 흰 카드
+        guide.setSpacing(tokens.SPACE_2)
+        guide.setContentsMargins(tokens.SPACE_4, 14, tokens.SPACE_4, 14)
+        for text, role in (
+            *((line, "body") for line in GUIDE_LINES),
+            (ISSUE_STEPS, "caption"),
+            (PRIVACY_NOTE, "caption"),
+        ):
+            label = set_role(QLabel(text), "role", role)
+            label.setWordWrap(True)
+            guide.addWidget(label)
+        layout.addWidget(guide_card)
 
         self.key_edit = QLineEdit()
         self.key_edit.setPlaceholderText("sk-ant-로 시작하는 키 붙여넣기")
@@ -89,16 +101,20 @@ class ApiKeyDialog(QDialog):
             )
         )
         row = QHBoxLayout()
-        row.setSpacing(tokens.SPACE_2)
+        row.setSpacing(tokens.SPACE_3)
         row.addWidget(self.key_edit, 1)
         row.addWidget(self.show_key)
-        layout.addLayout(row)
-
+        field = QVBoxLayout()
+        field.setSpacing(6)
+        field.addLayout(row)
         self.status_label = set_role(QLabel(), "role", "caption")
         self.status_label.setWordWrap(True)
+        field.addWidget(self.status_label)
+        layout.addLayout(field)
+
         self.message_label = set_role(QLabel(), "role", "body")
         self.message_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
+        self.message_label.hide()
         layout.addWidget(self.message_label)
 
         self.delete_button = set_role(QPushButton("키체인에서 지우기"), "variant", "ghost")
@@ -117,6 +133,18 @@ class ApiKeyDialog(QDialog):
         layout.addSpacing(tokens.SPACE_1)
         layout.addLayout(actions)
 
+    def _fit_height(self) -> None:
+        """고정 폭에서 줄바꿈된 글 높이만큼 창 높이를 맞춘다 (글이 겹치거나 잘리지 않게)."""
+        layout = self.layout()
+        layout.activate()
+        self.setMinimumHeight(layout.totalHeightForWidth(DIALOG_WIDTH))
+        self.resize(DIALOG_WIDTH, self.minimumHeight())
+
+    def _message(self, text: str) -> None:
+        self.message_label.setText(text)
+        self.message_label.setVisible(bool(text))
+        self._fit_height()
+
     def _refresh(self) -> None:
         self.status_label.setText(f"지금: {STATUS_TEXT[self._source()]}")
         self._update_buttons()
@@ -129,17 +157,13 @@ class ApiKeyDialog(QDialog):
         try:
             self._save(self.key_edit.text())
         except ValueError as e:
-            self.message_label.setText(str(e))
+            self._message(str(e))
             return
         except ApiKeyStoreError as e:
-            self.message_label.setText(
-                f"{e}. 대신 ANTHROPIC_API_KEY 환경변수를 설정한 뒤 앱을 실행해 주세요."
-            )
+            self._message(f"{e}. 대신 ANTHROPIC_API_KEY 환경변수를 설정한 뒤 앱을 실행해 주세요.")
             return
         self.key_edit.clear()
-        self.message_label.setText(
-            "저장했습니다. 이제 플레이북이 없는 서비스에서 AI 안내를 쓸 수 있어요."
-        )
+        self._message("저장했습니다. 이제 플레이북이 없는 서비스에서 AI 안내를 쓸 수 있어요.")
         self._refresh()
         self.key_changed.emit()
 
@@ -147,8 +171,8 @@ class ApiKeyDialog(QDialog):
         try:
             self._delete()
         except ApiKeyStoreError as e:
-            self.message_label.setText(str(e))
+            self._message(str(e))
             return
-        self.message_label.setText("키체인에서 지웠습니다.")
+        self._message("키체인에서 지웠습니다.")
         self._refresh()
         self.key_changed.emit()

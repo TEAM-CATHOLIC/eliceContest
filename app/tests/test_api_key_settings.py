@@ -177,3 +177,21 @@ def test_환경변수_키가_키체인보다_먼저_쓰인다(memory_keyring, mo
     # then
     assert llm.api_key_source() == "env"
     assert llm.anthropic_api_key() == "sk-ant-from-env-0123456789"
+
+
+def test_키_입력_창은_폭이_고정되고_안내_글이_잘리지_않게_줄바꿈된다(qtbot):
+    # given (#83): 줄바꿈 글은 폭이 정해져야 높이가 맞게 계산된다
+    from PySide6.QtWidgets import QLabel
+
+    from account_cleaner.ui.api_key_dialog import DIALOG_WIDTH
+
+    dialog = dialog_with(qtbot, FakeStore())
+    dialog.show()
+    qtbot.waitExposed(dialog)
+
+    # then
+    assert dialog.width() == DIALOG_WIDTH
+    for label in dialog.findChildren(QLabel):
+        if label.isVisible() and label.wordWrap() and label.text():
+            assert label.height() >= label.heightForWidth(label.width()) - 1, label.text()
+    assert not dialog.message_label.isVisible()  # 빈 안내 줄은 자리를 차지하지 않는다

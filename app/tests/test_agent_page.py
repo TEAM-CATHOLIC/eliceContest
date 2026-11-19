@@ -174,3 +174,36 @@ def test_안전_데모는_확인_창_없이_바로_시작한다(qtbot, tmp_path)
     qtbot.waitUntil(page.is_running, timeout=3000)
     page.stop()
     BackgroundTask.shutdown_all()
+
+
+def test_안내가_돌아가는_동안_움직이는_진행_표시와_걸린_시간을_보여_준다(qtbot, page):
+    # given (#83)
+    assert not page.activity.isVisible()
+    with qtbot.waitSignal(page.running_changed) as started:
+        page.start()
+
+    # then: 시작하자마자 보이고 막대가 움직인다
+    assert started.args == [True]
+    assert page.activity.isVisible()
+    assert page.activity.bar.is_animating()
+    assert " · 0:0" in page.activity.text()
+
+    # when: 사용자 차례 → 막대는 멈추고 기다린다는 문구
+    qtbot.waitUntil(lambda: page.turn_box.isVisible(), timeout=3000)
+    assert not page.activity.bar.is_animating()
+    assert "기다리는 중" in page.activity.text()
+
+    # when: 중단하면 사라진다
+    with qtbot.waitSignal(page.running_changed, timeout=3000) as finished:
+        page.stop_button.click()
+    assert finished.args == [False]
+    qtbot.waitUntil(lambda: not page.activity.isVisible(), timeout=3000)
+
+
+def test_걸린_시간은_분과_초로_보여_준다():
+    # given
+    from account_cleaner.ui.activity import elapsed_text
+
+    # then
+    assert elapsed_text(5) == "0:05"
+    assert elapsed_text(75) == "1:15"
