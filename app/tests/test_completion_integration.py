@@ -23,11 +23,15 @@ DOMAIN = "dropbox.com"
 
 
 def message(body="회원 탈퇴 처리가 완료되었습니다.", key="new", domain=DOMAIN, date=None):
-    return ParsedMail(key, f"notice@{domain}", domain, "탈퇴 안내", date or T + timedelta(seconds=1), body)
+    return ParsedMail(
+        key, f"notice@{domain}", domain, "탈퇴 안내", date or T + timedelta(seconds=1), body
+    )
 
 
 def candidate(key="new"):
-    return AccountCandidate("Dropbox", DOMAIN, 0.1, (Evidence(key, EvidenceType.DELETED, 1.0),), T, T)
+    return AccountCandidate(
+        "Dropbox", DOMAIN, 0.1, (Evidence(key, EvidenceType.DELETED, 1.0),), T, T
+    )
 
 
 @pytest.fixture
@@ -58,15 +62,18 @@ def test_mail_evidence_does_not_complete_or_clear_sessions(setup):
     assert "사용자 완료 확인 · 완료 표현 메일 발견" in page.detail.completion_label.text()
 
 
-@pytest.mark.parametrize("mail", [
-    message("회원 탈퇴 요청이 접수되었습니다."),
-    message("계정은 다음 달 삭제될 예정입니다."),
-    message("구독 해지가 완료되었습니다."),
-    message("회원 탈퇴가 완료되지 않았습니다."),
-    message(domain="other.example"),
-    message(date=T - timedelta(days=1)),
-    message(key="old"),
-])
+@pytest.mark.parametrize(
+    "mail",
+    [
+        message("회원 탈퇴 요청이 접수되었습니다."),
+        message("계정은 다음 달 삭제될 예정입니다."),
+        message("구독 해지가 완료되었습니다."),
+        message("회원 탈퇴가 완료되지 않았습니다."),
+        message(domain="other.example"),
+        message(date=T - timedelta(days=1)),
+        message(key="old"),
+    ],
+)
 def test_non_completion_mail_is_rejected(setup, mail):
     _db, store, page, _now = setup
     store.agent_started(DOMAIN, "Dropbox", {"old"})
@@ -137,4 +144,3 @@ def test_baseline_survives_database_reopen(tmp_path):
     db = Database(path)
     assert StatusStore(db).completion_watch(DOMAIN) == (T, {"existing"})
     db.close()
-

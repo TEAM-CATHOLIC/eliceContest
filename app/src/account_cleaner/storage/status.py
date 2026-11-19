@@ -122,9 +122,13 @@ class StatusStore:
             conn.execute("DELETE FROM reminders WHERE domain = ?", (domain,))
 
     def completion_watch(self, domain: str) -> tuple[datetime, set[str]] | None:
-        row = self._db.connection().execute(
-            "SELECT started_at, known_ids FROM completion_watch WHERE domain = ?", (domain,)
-        ).fetchone()
+        row = (
+            self._db.connection()
+            .execute(
+                "SELECT started_at, known_ids FROM completion_watch WHERE domain = ?", (domain,)
+            )
+            .fetchone()
+        )
         if row is None:
             return None
         return from_text(row["started_at"]), set(json.loads(row["known_ids"]))

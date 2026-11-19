@@ -118,7 +118,9 @@ class CandidateDetailPanel(QWidget):
     def _refresh_completion(self) -> None:
         domain = self._candidate.domain if self._candidate else ""
         result = self.completion_results.get(domain)
-        manual = "사용자 완료 확인" if self._status is CandidateStatus.DONE else "사용자 완료 미확인"
+        manual = (
+            "사용자 완료 확인" if self._status is CandidateStatus.DONE else "사용자 완료 미확인"
+        )
         mail_text = "완료 표현 메일 발견" if result else "완료 메일 미확인"
         text = f"{manual} · {mail_text}"
         if result:
