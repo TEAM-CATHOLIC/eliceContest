@@ -315,3 +315,37 @@ def test_15초를_기다려도_아무것도_안_뜨면_그때_실패한다():
     assert result.status is AgentStatus.FAILED
     assert "15초" in result.message
     assert page.waits == 15
+
+
+def test_로그인_상태라_ai가_고르지_못하면_프로필_메뉴를_열어_보고_다시_묻는다():
+    # given (#79, inflearn): 계정 항목이 프로필 메뉴 안에 숨어 있는 첫 화면
+    final = [element("회원 탈퇴하기", tag="button")]
+    settings = [element("계정 설정", next=final)]
+    avatar = element("", tag="button", next=settings)
+    avatar["ariaLabel"] = "[아이콘: profile avatar]"
+    page = FakePage([element("강의"), avatar])
+    selector = FakeSelector(None, 0)
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=selector).run(page))
+
+    # then
+    assert page.clicks == ["", "계정 설정"]
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+
+
+def test_메뉴는_최대_두_개까지만_열어_보고_그래도_없으면_실패한다():
+    # given
+    menus = [element(f"메뉴 {n}", tag="button") for n in range(4)]
+    for item in menus:
+        item["next"] = menus  # 열어도 화면이 그대로
+    page = FakePage(menus)
+
+    # when
+    result = run(
+        BrowserAgent(playbook(), next_click_selector=FakeSelector(None, None, None)).run(page)
+    )
+
+    # then
+    assert page.clicks == ["메뉴 0", "메뉴 1"]
+    assert result.status is AgentStatus.FAILED

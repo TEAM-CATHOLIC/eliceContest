@@ -39,6 +39,12 @@ PRIORITY = re.compile(
     r"account|setting|profile|my\s*page|privacy|security|log\s*in|sign\s*in",
     re.IGNORECASE,
 )
+MENU = re.compile(
+    r"메뉴|더\s*보기|프로필|내\s*정보|마이|계정|menu|more|profile|avatar|account|my\s*page|user",
+    re.IGNORECASE,
+)
+"""계정 항목이 숨어 있을 수 있는 메뉴·프로필 버튼"""
+MAX_MENU_TRIES = 2
 LOGIN = re.compile(r"로그인|log\s*in|sign\s*in", re.IGNORECASE)
 """로그아웃 상태의 로그인 진입점"""
 MAX_STEPS = 12
@@ -58,9 +64,19 @@ ELEMENT_INFO_SCRIPT = """element => {
       hrefPath = url.origin === location.origin ? url.pathname + url.search : '';
     } catch (_) {}
   }
+  // 글자가 없는 아이콘 버튼(프로필 사진·햄버거 메뉴)은 title·alt·클래스 이름으로 무엇인지 알린다
+  const img = element.querySelector('img[alt]');
+  const svgTitle = element.querySelector('svg title');
+  const names = [element.id, String(element.className && element.className.baseVal !== undefined
+    ? element.className.baseVal : element.className || ''), element.getAttribute('data-testid') || '']
+    .join(' ').toLowerCase();
+  const hint = (names.match(/profile|avatar|user|account|mypage|my-page|setting|menu|gnb|hamburger|more/g) || [])
+    .filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(' ');
+  const label = element.getAttribute('aria-label') || element.getAttribute('title')
+    || (img && img.alt) || (svgTitle && svgTitle.textContent) || '';
   return {
     text: (element.innerText || element.textContent || '').trim(),
-    ariaLabel: element.getAttribute('aria-label') || '',
+    ariaLabel: label || (hint ? `[아이콘: ${hint}]` : ''),
     tag: element.tagName.toLowerCase(),
     role: element.getAttribute('role') || '',
     href: href,
@@ -81,7 +97,18 @@ class ExtractedElement:
         return f"{item.tag}|{item.role}|{item.text}|{item.aria_label}|{item.href_path}"
 
 
+ALL_INFO_SCRIPT = "(elements, limit) => elements.slice(0, limit).map(" + ELEMENT_INFO_SCRIPT + ")"
+
+
 async def _raw_infos(collection: Any, count: int) -> list[tuple[int, dict]]:
+    """한 번의 호출로 모든 요소 정보를 읽는다 (요소마다 부르면 400개에 10초 이상 걸림)."""
+    evaluate_all = getattr(collection, "evaluate_all", None)
+    if evaluate_all is not None:
+        try:
+            raws = await evaluate_all(ALL_INFO_SCRIPT, count)
+            return list(enumerate(raws))
+        except Exception:  # 실패하면 하나씩 읽는다
+            log.debug("evaluate_all 실패, 하나씩 읽음", exc_info=True)
     infos: list[tuple[int, dict]] = []
     for index in range(count):
         try:
@@ -158,6 +185,7 @@ class GenericNavigator:
         self.visited: set[str] = set()
         self._waited = False
         self.login_tried = False
+        self.menu_tried: set[str] = set()
         """로그인 진입점을 이미 한 번 눌렀다 (두 번째부터는 누르지 않고 사용자에게 넘긴다)"""
         self.history: list[str] = []
 
@@ -243,27 +271,10 @@ class GenericNavigator:
             by_id = {item.candidate.id: item for item in elements}
             chosen = by_id.get(decision.choice) if decision.choice is not None else None
             if chosen is None:
-                login = self._login_entry(elements)
-                if login is None:
-                    return self._failed(
-                        attempt, current_url, decision.reason or "다음 동작을 찾지 못했습니다"
-                    )
-                if self.login_tried:
-                    # 로그인 화면으로 갔는데도 계정 메뉴가 없다 → 사람이 로그인할 때까지 기다린다
-                    return AgentResult(
-                        AgentStatus.WAITING_FOR_USER,
-                        self.service_id,
-                        "로그인이 필요해 보입니다",
-                        attempt,
-                        current_url,
-                        "password",
-                    )
-                # 로그아웃 상태라 계정 메뉴가 없다 → 로그인 화면으로 데려간 뒤 사용자에게 넘긴다 (#79)
-                self.login_tried = True
-                chosen = login
-                decision = NextClick(
-                    login.candidate.id, "로그인이 필요해 로그인 화면으로 이동합니다"
-                )
+                fallback = self._fallback(elements, attempt, current_url, decision)
+                if isinstance(fallback, AgentResult):
+                    return fallback
+                chosen, decision = fallback
             text = f"{chosen.candidate.text} {chosen.candidate.aria_label}".strip()
             if FORBIDDEN_ACTION.search(text):
                 return self._failed(
@@ -327,6 +338,52 @@ class GenericNavigator:
             waited += POLL_MS
             elements = await extract_elements(page, self.private_values)
         return elements
+
+    def _fallback(
+        self, elements: list[ExtractedElement], attempt: int, url: str, decision: NextClick
+    ) -> AgentResult | tuple[ExtractedElement, NextClick]:
+        """AI가 아무것도 고르지 못했을 때 (#79).
+
+        1. 로그아웃 상태(로그인 버튼이 보임): 로그인 화면으로 한 번 데려가고, 그다음엔 사람을 기다린다.
+        2. 로그인 상태: 계정 항목이 숨어 있을 수 있는 메뉴·프로필 버튼을 최대 2개까지 열어 보고 다시 묻는다.
+        3. 둘 다 아니면 실패.
+        """
+        login = self._login_entry(elements)
+        if login is not None:
+            if self.login_tried:
+                return AgentResult(
+                    AgentStatus.WAITING_FOR_USER,
+                    self.service_id,
+                    "로그인이 필요해 보입니다",
+                    attempt,
+                    url,
+                    "password",
+                )
+            self.login_tried = True
+            return login, NextClick(
+                login.candidate.id, "로그인이 필요해 로그인 화면으로 이동합니다"
+            )
+        menu = self._menu_entry(elements)
+        if menu is not None:
+            self.menu_tried.add(menu.fingerprint)
+            return menu, NextClick(menu.candidate.id, "계정 메뉴를 찾으려고 메뉴를 열어 봅니다")
+        return self._failed(attempt, url, decision.reason or "다음 동작을 찾지 못했습니다")
+
+    def _menu_entry(self, elements: list[ExtractedElement]) -> ExtractedElement | None:
+        if len(self.menu_tried) >= MAX_MENU_TRIES:
+            return None
+        return next(
+            (
+                item
+                for item in elements
+                if item.fingerprint not in self.menu_tried
+                and MENU.search(f"{item.candidate.text} {item.candidate.aria_label}")
+                and not LOGIN.search(item.candidate.text)
+                and "로그아웃" not in item.candidate.text
+                and "log out" not in item.candidate.text.casefold()
+            ),
+            None,
+        )
 
     @staticmethod
     def _login_entry(elements: list[ExtractedElement]) -> ExtractedElement | None:

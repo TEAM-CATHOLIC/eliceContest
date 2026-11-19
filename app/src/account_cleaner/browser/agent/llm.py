@@ -162,7 +162,11 @@ class AnthropicNextClickSelector:
                 "로그인하지 않은 상태로 보여 계정 메뉴가 없으면 로그인 링크·버튼을 고른다 "
                 "(로그인 화면에서는 사람이 직접 입력한다). "
                 "계정·내 정보·마이페이지·프로필·설정 메뉴가 보이면 그쪽을 먼저 고른다. "
-                "반드시 제공된 후보 id만 반환하고 확실하지 않으면 choice를 null로 한다."
+                "계정 메뉴가 바로 안 보이면 프로필 사진·아바타·전체 메뉴·더보기·[아이콘: ...] 버튼을 "
+                "열어 보는 것도 좋은 선택이다. 탐색은 되돌릴 수 있으니 가능성이 있는 후보를 고른다. "
+                "previous_actions에 이미 연 메뉴는 다시 고르지 않는다. "
+                "반드시 제공된 후보 id만 반환하고, 관련 있어 보이는 후보가 정말 하나도 없을 때만 "
+                "choice를 null로 한다."
             ),
             messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
             output_format=NextClickOutput,
