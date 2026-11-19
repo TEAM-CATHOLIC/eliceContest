@@ -4,7 +4,9 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .generic import GenericNavigator
 from .handoff import detect_handoff
+from .llm import NextClickSelector
 from .models import Action, AgentResult, AgentStatus, Playbook, Step
 from .policy import PolicyViolation, SafetyPolicy
 from .redaction import redact_sensitive
@@ -16,10 +18,19 @@ EventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
 class BrowserAgent:
-    def __init__(self, playbook: Playbook, on_event: EventHandler | None = None):
+    def __init__(
+        self,
+        playbook: Playbook,
+        on_event: EventHandler | None = None,
+        next_click_selector: NextClickSelector | None = None,
+        private_values: tuple[str, ...] = (),
+    ):
         self.playbook = playbook
         self.policy = SafetyPolicy(playbook.allowed_domains, playbook.auth_domains)
         self.on_event = on_event
+        self.next_click_selector = next_click_selector
+        self.private_values = private_values
+        self._generic: GenericNavigator | None = None
 
     async def _emit(self, event: dict[str, Any]) -> None:
         safe = {key: redact_sensitive(str(value)) for key, value in event.items()}
@@ -68,6 +79,26 @@ class BrowserAgent:
             if navigate_entry:
                 self.policy.require_allowed_url(self.playbook.entry_url)
                 await page.goto(self.playbook.entry_url, wait_until="domcontentloaded")
+            if not self.playbook.steps:
+                if self.next_click_selector is None:
+                    url = await self._current_url(page)
+                    return AgentResult(
+                        AgentStatus.FAILED,
+                        self.playbook.service_id,
+                        "범용 AI 안내를 사용하려면 Anthropic API 키가 필요합니다",
+                        start_step,
+                        url,
+                        "missing_llm",
+                    )
+                if self._generic is None:
+                    self._generic = GenericNavigator(
+                        self.next_click_selector,
+                        self.policy,
+                        self.playbook.service_id,
+                        self._emit,
+                        self.private_values,
+                    )
+                return await self._generic.run(page, start_step)
             for index in range(start_step, len(self.playbook.steps)):
                 current_step = index
                 current_url = await self._current_url(page)

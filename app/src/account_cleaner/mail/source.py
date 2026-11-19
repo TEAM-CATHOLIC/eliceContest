@@ -36,3 +36,8 @@ class MailSource(ABC):
     def failures(self) -> list[tuple[str, str]]:
         """원문을 받지 못해 건너뛴 메일 (위치, 이유). 계정 연결 소스가 네트워크 오류 등을 담는다."""
         return []
+
+    @property
+    def private_values(self) -> tuple[str, ...]:
+        """LLM 전송 직전 추가로 가릴 현재 사용자 식별자. 원문·토큰은 포함하지 않는다."""
+        return ()

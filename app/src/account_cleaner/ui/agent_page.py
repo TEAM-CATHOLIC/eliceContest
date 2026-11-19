@@ -8,6 +8,7 @@
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner import providers
+from account_cleaner.browser.agent.llm import llm_available
 from account_cleaner.contracts import (
     AccountCandidate,
     AgentEvent,
@@ -31,6 +33,7 @@ from account_cleaner.contracts import (
     Playbook,
     WithdrawAgent,
 )
+from account_cleaner.contracts.login import LoginMethod
 from account_cleaner.ui.theme import page_header, page_layout, section_card, set_role, tokens
 from account_cleaner.ui.workers import BackgroundTask
 
@@ -51,6 +54,7 @@ DONE, CURRENT, WAITING, PENDING, LOCKED = "✓", "▶", "⏸", "○", "🔒"
 
 AgentFactory = Callable[[Path], WithdrawAgent]
 PlaybookLoader = Callable[[], dict[str, Playbook]]
+GenericAvailability = Callable[[], bool]
 
 
 class _EventRelay(QObject):
@@ -119,17 +123,20 @@ class AgentPage(QWidget):
         agent_factory: AgentFactory = providers.get_withdraw_agent,
         playbook_loader: PlaybookLoader = providers.get_playbooks,
         include_demo: bool = True,
+        generic_available: GenericAvailability = llm_available,
     ) -> None:
         super().__init__()
         self._profile_dir = profile_dir
         self._agent_factory = agent_factory
         self._playbooks = playbook_loader()
         self._include_demo = include_demo
+        self._generic_available = generic_available
         self._agent: WithdrawAgent | None = None
         self._task: BackgroundTask | None = None
         self._demo_server = None
         self.guide_dialog = None
         self._candidate_lookup: CandidateLookup = lambda _domain: None
+        self._private_values: tuple[str, ...] = ()
         self.current_domain: str | None = None
         """후보 상세에서 시작한 안내일 때 그 후보의 도메인 (결과 기록용)"""
         self._relay = _EventRelay(self)
@@ -264,7 +271,41 @@ class AgentPage(QWidget):
 
     def playbook_for_domain(self, domain: str) -> Playbook | None:
         """계정 후보 도메인에 맞는 플레이북 (상세 패널의 'AI 에이전트로 탈퇴 진행' 활성화에 씀)."""
-        return next((p for p in self._playbooks.values() if p.matches_domain(domain)), None)
+        known = next((p for p in self._playbooks.values() if p.matches_domain(domain)), None)
+        if known is not None:
+            if known.id.startswith("generic:") and known.private_values != self._private_values:
+                known = replace(known, private_values=self._private_values)
+                self._playbooks[known.id] = known
+            return known
+        domain = domain.strip().lower().rstrip(".")
+        if not self._generic_available() or not domain or any(c in domain for c in "/:@"):
+            return None
+        playbook_id = f"generic:{domain}"
+        generic = self._playbooks.get(playbook_id)
+        if generic is None:
+            url = f"https://{domain}"
+            generic = Playbook(
+                id=playbook_id,
+                service=domain,
+                domains=(domain,),
+                login_methods=(LoginMethod.EMAIL,),
+                login_url=url,
+                password_reset_url=url,
+                withdraw_url=url,
+                steps=(),
+                private_values=self._private_values,
+            )
+            self._playbooks[playbook_id] = generic
+            self.service_combo.addItem(f"{domain} · AI 실험", playbook_id)
+        return generic
+
+    def set_private_values(self, values: tuple[str, ...]) -> None:
+        """메일 연결에서 확인한 사용자 식별자를 LLM 마스킹에만 전달한다."""
+        cleaned = tuple(dict.fromkeys(value.strip() for value in values if len(value.strip()) >= 2))
+        self._private_values = cleaned
+        for key, playbook in tuple(self._playbooks.items()):
+            if key.startswith("generic:"):
+                self._playbooks[key] = replace(playbook, private_values=cleaned)
 
     def set_candidate_lookup(self, lookup: CandidateLookup) -> None:
         """안내 창에 메일에서 찾은 가입 방식을 보여 주려고 인벤토리 후보를 찾는다."""
