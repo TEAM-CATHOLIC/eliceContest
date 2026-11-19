@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -12,6 +13,20 @@ from .llm import ElementCandidate, NextClickSelector
 from .models import AgentResult, AgentStatus
 from .policy import SafetyPolicy
 from .redaction import redact_for_llm
+
+log = logging.getLogger(__name__)
+
+COMMON_AUTH_DOMAINS = (
+    "accounts.google.com",
+    "appleid.apple.com",
+    "accounts.kakao.com",
+    "kauth.kakao.com",
+    "nid.naver.com",
+    "facebook.com",
+    "login.microsoftonline.com",
+)
+"""처음 보는 사이트의 소셜 로그인 도메인. 여기서는 조작하지 않고 사용자에게 넘긴다 (#79)."""
+LLM_FAILED_MESSAGE = "AI 응답을 받지 못했어요. 인터넷 연결과 Anthropic API 키를 확인해 주세요."
 
 MAX_CANDIDATES = 60
 MAX_STEPS = 12
@@ -152,12 +167,16 @@ class GenericNavigator:
                 return self._failed(attempt, current_url, "선택할 수 있는 링크나 버튼이 없습니다")
 
             parsed = urlparse(current_url)
-            decision = await self.selector.choose(
-                domain=parsed.hostname or "",
-                path=redact_for_llm(parsed.path or "/", self.private_values)[:160],
-                candidates=tuple(item.candidate for item in elements),
-                previous_actions=tuple(self.history),
-            )
+            try:
+                decision = await self.selector.choose(
+                    domain=parsed.hostname or "",
+                    path=redact_for_llm(parsed.path or "/", self.private_values)[:160],
+                    candidates=tuple(item.candidate for item in elements),
+                    previous_actions=tuple(self.history),
+                )
+            except Exception:  # 네트워크·키·응답 형식 오류는 모두 안내 후 종료 (#79)
+                log.warning("범용 안내 LLM 호출 실패", exc_info=True)
+                return self._failed(attempt, current_url, LLM_FAILED_MESSAGE)
             by_id = {item.candidate.id: item for item in elements}
             chosen = by_id.get(decision.choice) if decision.choice is not None else None
             if chosen is None:

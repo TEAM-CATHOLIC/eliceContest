@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner import providers
+from account_cleaner.browser.agent.generic import COMMON_AUTH_DOMAINS
 from account_cleaner.browser.agent.llm import llm_available
 from account_cleaner.contracts import (
     AccountCandidate,
@@ -55,6 +56,16 @@ DONE, CURRENT, WAITING, PENDING, LOCKED = "✓", "▶", "⏸", "○", "🔒"
 AgentFactory = Callable[[Path], WithdrawAgent]
 PlaybookLoader = Callable[[], dict[str, Playbook]]
 GenericAvailability = Callable[[], bool]
+
+
+def generic_domain_ok(domain: str) -> bool:
+    """범용 안내를 시작해도 되는 후보 도메인인지. 서비스 이름만 찾은 `*.invalid`나 주소 조각은 제외 (#79)."""
+    return (
+        bool(domain)
+        and "." in domain
+        and not domain.endswith(".invalid")
+        and not any(c in domain for c in "/:@ ")
+    )
 
 
 class _EventRelay(QObject):
@@ -278,7 +289,7 @@ class AgentPage(QWidget):
                 self._playbooks[known.id] = known
             return known
         domain = domain.strip().lower().rstrip(".")
-        if not self._generic_available() or not domain or any(c in domain for c in "/:@"):
+        if not self._generic_available() or not generic_domain_ok(domain):
             return None
         playbook_id = f"generic:{domain}"
         generic = self._playbooks.get(playbook_id)
@@ -292,6 +303,7 @@ class AgentPage(QWidget):
                 login_url=url,
                 password_reset_url=url,
                 withdraw_url=url,
+                auth_domains=COMMON_AUTH_DOMAINS,
                 steps=(),
                 private_values=self._private_values,
             )

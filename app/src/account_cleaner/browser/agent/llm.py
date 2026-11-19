@@ -106,7 +106,7 @@ class AnthropicNextClickSelector:
         }
         response = await self._get_client().messages.parse(
             model=self.model,
-            max_tokens=256,
+            max_tokens=2048,  # 생각(thinking) 토큰이 섞여도 JSON이 잘리지 않게 여유 (#79)
             output_config={"effort": "low"},
             system=(
                 "계정 설정에서 회원 탈퇴 또는 계정 삭제 화면으로 이동할 다음 링크나 버튼 "
@@ -118,6 +118,10 @@ class AnthropicNextClickSelector:
             messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
             output_format=NextClickOutput,
         )
+        if response.stop_reason == "refusal":
+            return NextClick(None, "AI가 이 화면에서 선택을 거절했습니다")
+        if response.stop_reason == "max_tokens":
+            return NextClick(None, "AI 응답이 잘려 선택을 확인하지 못했습니다")
         parsed = response.parsed_output
         if parsed is None:
             return NextClick(None, "모델이 선택을 반환하지 않았습니다")

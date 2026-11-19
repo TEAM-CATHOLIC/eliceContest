@@ -156,3 +156,86 @@ def test_api키가_없는_범용_플레이북은_명확히_실패한다():
 
     assert result.status is AgentStatus.FAILED
     assert result.reason == "missing_llm"
+
+
+class BrokenSelector:
+    async def choose(self, **_payload):
+        raise ConnectionError("network down")
+
+
+def test_llm_호출이_실패하면_브라우저_오류가_아니라_ai_응답_안내로_끝낸다():
+    # given (#79)
+    from account_cleaner.browser.agent.generic import LLM_FAILED_MESSAGE
+
+    page = FakePage([element("Settings")])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=BrokenSelector()).run(page))
+
+    # then
+    assert result.status is AgentStatus.FAILED
+    assert result.message == LLM_FAILED_MESSAGE
+    assert page.clicks == []
+
+
+def test_모델이_거절하거나_응답이_잘리면_선택_없음으로_돌려준다():
+    # given (#79)
+    import asyncio
+    from types import SimpleNamespace
+
+    from account_cleaner.browser.agent.llm import AnthropicNextClickSelector
+
+    def selector_returning(stop_reason):
+        class FakeMessages:
+            async def parse(self, **_kwargs):
+                return SimpleNamespace(stop_reason=stop_reason, parsed_output=None)
+
+        selector = AnthropicNextClickSelector("test-key")
+        selector._client = SimpleNamespace(messages=FakeMessages())
+        return selector
+
+    async def choose(stop_reason):
+        return await selector_returning(stop_reason).choose(
+            domain="example.com", path="/", candidates=(), previous_actions=()
+        )
+
+    # when
+    refused = asyncio.run(choose("refusal"))
+    cut = asyncio.run(choose("max_tokens"))
+
+    # then
+    assert refused.choice is None and "거절" in refused.reason
+    assert cut.choice is None and "잘려" in cut.reason
+
+
+def test_범용_안내는_서비스_이름만_찾은_후보나_주소_조각에는_켜지지_않는다():
+    # given (#79)
+    from account_cleaner.ui.agent_page import generic_domain_ok
+
+    # then
+    assert generic_domain_ok("notion.so")
+    assert not generic_domain_ok("샘플서비스.invalid")
+    assert not generic_domain_ok("localhost")
+    assert not generic_domain_ok("evil.com/path")
+
+
+def test_범용_플레이북은_소셜_로그인_도메인을_사용자_차례로_넘긴다(qtbot, tmp_path):
+    # given (#79): Google 로그인을 거쳐도 도메인 위반으로 끝나지 않게
+    from account_cleaner.browser.agent.generic import COMMON_AUTH_DOMAINS
+    from account_cleaner.ui.agent_page import AgentPage
+
+    page = AgentPage(
+        tmp_path / "profile",
+        playbook_loader=dict,
+        include_demo=False,
+        generic_available=lambda: True,
+    )
+    qtbot.addWidget(page)
+
+    # when
+    generic = page.playbook_for_domain("notion.so")
+
+    # then
+    assert generic is not None and generic.id == "generic:notion.so"
+    assert "accounts.google.com" in generic.auth_domains
+    assert set(COMMON_AUTH_DOMAINS) <= set(generic.auth_domains)
