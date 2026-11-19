@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from account_cleaner.classifier.reasons import key_sentence
 from account_cleaner.contracts import (
     AccountCandidate,
     EvidenceType,
@@ -30,7 +31,7 @@ from account_cleaner.contracts import (
 )
 from account_cleaner.ui.candidates.delegate import STATUS_TONES, avatar_tint, display_name
 from account_cleaner.ui.candidates.guide import UrlOpener, WithdrawGuideDialog, default_open_url
-from account_cleaner.ui.candidates.model import CandidateStatus, evidence_label
+from account_cleaner.ui.candidates.model import CandidateStatus, evidence_label, verdict_label
 from account_cleaner.ui.theme import Icon, pixmap, set_role, tokens
 
 MailLookup = Callable[[str], ParsedMail | None]
@@ -53,21 +54,12 @@ REVIEW_BUTTONS = (
 
 
 def explain_score(candidate: AccountCandidate) -> str:
-    """신뢰도를 만든 근거를 문장으로 (NF-03: 숫자만 보여 주지 않는다)."""
+    """판정을 만든 근거를 문장으로 (NF-03)."""
     counts = Counter(e.type for e in candidate.evidence)
     labels = Counter(evidence_label(e) for e in candidate.evidence)
-    strongest: dict[str, float] = {}
-    for e in candidate.evidence:
-        label = evidence_label(e)
-        strongest[label] = max(strongest.get(label, 0.0), e.probability)
-    parts = [
-        f"{label} 메일 {n}통(최고 {round(strongest[label] * 100)}%)"
-        for label, n in labels.most_common()
-    ]
-    text = (
-        f"신뢰도 {round(candidate.score * 100)}% — " + ", ".join(parts) + "을 근거로 판단했습니다."
-    )
-    text += " 이 점수는 후보 정렬용이며 검증된 계정 존재 확률이 아닙니다."
+    parts = [f"{label} 메일 {n}통" for label, n in labels.most_common()]
+    text = f"{verdict_label(candidate)} — " + ", ".join(parts) + "을 근거로 판단했습니다."
+    text += " 메일 근거로 본 판단이며 현재 계정 상태를 확인한 것은 아닙니다."
     deleted = [e for e in candidate.evidence if e.type is EvidenceType.DELETED]
     if any(e.probability == 1.0 for e in deleted):
         text += " 과거 탈퇴 완료 근거가 있습니다. 이후 재가입과 현재 상태는 확인이 필요합니다."
@@ -309,11 +301,14 @@ class CandidateDetailPanel(QWidget):
         for evidence in sorted(candidate.evidence, key=lambda e: -e.probability):
             mail = self._mail_lookup(evidence.mail_id)
             label = evidence_label(evidence)
-            head = f"[{label}] {round(evidence.probability * 100)}%"
+            head = f"[{label}]"
             if mail is None:
                 text = f"{head} · 메일 {evidence.mail_id}"
             else:
-                text = f"{mail.date:%Y.%m.%d}  {mail.subject}\n{head}"
+                quote = key_sentence(mail.body_text, evidence.type)
+                text = f"{mail.date:%Y.%m.%d}  {mail.subject}\n{head}" + (
+                    f" “{quote}”" if quote else ""
+                )
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, mail)
             self.evidence_list.addItem(item)

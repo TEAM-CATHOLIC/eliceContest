@@ -62,9 +62,19 @@ def test_신뢰도는_어떤_근거_메일이_만들었는지_문장으로_설�
     text = explain_score(SHOP)
 
     # then
-    assert text.startswith("신뢰도 92%")
-    assert "가입·인증 메일 1통(최고 95%)" in text
-    assert "광고·초대 메일 1통(최고 60%)" in text
+    assert text.startswith("계정 있음")
+    assert "가입·인증 메일 1통" in text
+    assert "광고·초대 메일 1통" in text
+    assert "%" not in text
+
+
+def test_근거_메일에는_판단에_쓰인_문장이_함께_보인다(panel):
+    # given / when
+    panel.show_candidate(SHOP, CandidateStatus.UNREVIEWED)
+
+    # then
+    assert "“샘플쇼핑 회원가입이 완료되었습니다.”" in panel.evidence_list.item(0).text()
+    assert "%" not in panel.evidence_list.item(0).text()
 
 
 def test_모델의_삭제추정은_탈퇴완료로_설명하지않는다():
@@ -103,8 +113,10 @@ def test_후보를_고르면_서비스_날짜_가입_방식_근거_메일이_보
     assert "처음 메일 2024.03.11" in panel.dates_label.text()
     assert panel.login_label.text() == "메일에 적힌 가입 방식: 카카오"
     rows = [panel.evidence_list.item(i).text() for i in range(panel.evidence_list.count())]
-    assert rows[0] == "2024.03.11  가입을 환영합니다\n[가입·인증] 95%"
-    assert rows[1] == "[광고·초대] 60% · 메일 <m2@shop>"  # 가져온 메일에 없으면 ID만
+    assert rows[0] == (
+        "2024.03.11  가입을 환영합니다\n[가입·인증] “샘플쇼핑 회원가입이 완료되었습니다.”"
+    )
+    assert rows[1] == "[광고·초대] · 메일 <m2@shop>"  # 가져온 메일에 없으면 ID만
 
 
 def test_근거_메일을_고르면_본문_앞부분만_미리_보인다(panel):

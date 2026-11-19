@@ -1,20 +1,26 @@
 """계정 후보 목록 한 줄 그리기 (#66).
 
 ┌────────────────────────────────────────────────────────────────┐
-│ [G]  GitHub  github.com                          100%   [확정] │
-│      가입·인증 1 · 보안·복구 1 · 마지막 메일 2026.10.19  ▬▬▬▬         │
+│ [G]  GitHub  github.com                      계정 있음   [확정] │
+│      가입·인증 1 · 보안·복구 1 · 마지막 메일 2026.10.19               │
 └────────────────────────────────────────────────────────────────┘
 글이 넘치면 말줄임(…)으로 줄이고, 전체 내용은 툴팁(모델의 ToolTipRole)으로 보여 준다.
 """
 
 from zlib import crc32
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from account_cleaner.contracts import AccountCandidate
-from account_cleaner.ui.candidates.model import CandidateStatus, Role, evidence_summary
+from account_cleaner.ui.candidates.model import (
+    CandidateStatus,
+    Role,
+    evidence_summary,
+    has_account,
+    verdict_label,
+)
 from account_cleaner.ui.theme import tokens
 
 ROW_HEIGHT = 64
@@ -86,23 +92,16 @@ class CandidateDelegate(QStyledItemDelegate):
         badge = QRect(right - BADGE_WIDTH + 1, rect.center().y() - 12, BADGE_WIDTH, 24)
         self._pill(painter, badge, status.label, STATUS_TONES[status], option.font)
         right = badge.left() - tokens.SPACE_4
-        # 신뢰도 숫자 + 막대
+        # 판정 (숫자 대신 "계정 있음 / 확인 안 됨")
         bar_left = right - BAR_WIDTH + 1
         painter.setFont(_font(option.font, tokens.CAPTION))
-        painter.setPen(QColor(tokens.GRAY_800))
+        painter.setPen(QColor(tokens.ACCENT if has_account(candidate) else tokens.GRAY_600))
         painter.drawText(
-            QRect(bar_left, rect.top() + 14, BAR_WIDTH, 18),
+            QRect(bar_left, rect.top(), BAR_WIDTH, rect.height()),
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            f"{round(candidate.score * 100)}%",
+            verdict_label(candidate),
         )
         painter.setPen(Qt.PenStyle.NoPen)
-        track = QRectF(bar_left, rect.top() + 38, BAR_WIDTH, 4)
-        painter.setBrush(QColor(tokens.GRAY_300))
-        painter.drawRoundedRect(track, 2, 2)
-        painter.setBrush(QColor(tokens.ACCENT if candidate.score >= 0.8 else tokens.GRAY_600))
-        painter.drawRoundedRect(
-            QRectF(track.left(), track.top(), max(4.0, BAR_WIDTH * candidate.score), 4), 2, 2
-        )
         right = bar_left - tokens.SPACE_4
         # 첫 글자 아바타
         avatar = QRect(left, rect.center().y() - AVATAR // 2, AVATAR, AVATAR)
