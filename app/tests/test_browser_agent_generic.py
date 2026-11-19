@@ -239,3 +239,37 @@ def test_범용_플레이북은_소셜_로그인_도메인을_사용자_차례�
     assert generic is not None and generic.id == "generic:notion.so"
     assert "accounts.google.com" in generic.auth_domains
     assert set(COMMON_AUTH_DOMAINS) <= set(generic.auth_domains)
+
+
+def test_첫_화면에_링크가_많아도_계정_메뉴를_후보_앞쪽에_넣는다():
+    # given (#79): 강의·이벤트 링크 100개 뒤에 마이페이지가 있는 첫 화면
+    noise = []
+    for n in range(100):
+        item = element(f"강의 {n}", href=f"https://example.com/course/{n}")
+        item["hrefPath"] = f"/course/{n}"
+        noise.append(item)
+    page = FakePage([*noise, element("마이페이지", href="https://example.com/my")])
+    selector = FakeSelector(None)
+
+    # when
+    run(BrowserAgent(playbook(), next_click_selector=selector).run(page))
+
+    # then
+    candidates = selector.payloads[0]["candidates"]
+    assert len(candidates) == 60
+    assert candidates[0].text == "마이페이지"
+
+
+def test_로그아웃_상태라_ai가_고르지_못하면_로그인_화면으로_데려가고_사용자를_기다린다():
+    # given (#79): 계정 메뉴 없이 로그인 버튼만 있는 첫 화면 → 누르면 로그인 화면
+    login_page = [element("로그인", tag="button"), element("비밀번호 찾기")]
+    page = FakePage([element("강의"), element("로그인", next=login_page)])
+    selector = FakeSelector(None, None)
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=selector).run(page))
+
+    # then: 로그인 링크는 한 번만 누르고, 로그인 화면의 제출 버튼은 누르지 않고 넘긴다
+    assert page.clicks == ["로그인"]
+    assert result.status is AgentStatus.WAITING_FOR_USER
+    assert result.reason == "password"

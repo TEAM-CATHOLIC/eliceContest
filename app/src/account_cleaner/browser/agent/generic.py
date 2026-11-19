@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .handoff import detect_handoff
-from .llm import ElementCandidate, NextClickSelector
+from .llm import ElementCandidate, NextClick, NextClickSelector
 from .models import AgentResult, AgentStatus
 from .policy import SafetyPolicy
 from .redaction import redact_for_llm
@@ -29,6 +29,15 @@ COMMON_AUTH_DOMAINS = (
 LLM_FAILED_MESSAGE = "AI 응답을 받지 못했어요. 인터넷 연결과 Anthropic API 키를 확인해 주세요."
 
 MAX_CANDIDATES = 60
+MAX_SCAN = 400
+"""화면의 링크·버튼을 이만큼까지 훑고, 계정·설정·로그인 관련을 앞에 두어 60개를 고른다"""
+PRIORITY = re.compile(
+    r"계정|설정|마이|내\s*정보|회원\s*정보|프로필|탈퇴|개인\s*정보|보안|로그인|"
+    r"account|setting|profile|my\s*page|privacy|security|log\s*in|sign\s*in",
+    re.IGNORECASE,
+)
+LOGIN = re.compile(r"로그인|log\s*in|sign\s*in", re.IGNORECASE)
+"""로그아웃 상태의 로그인 진입점"""
 MAX_STEPS = 12
 MAX_TEXT = 80
 INTERACTIVE_SELECTOR = "a:visible, button:visible, [role=link]:visible, [role=button]:visible"
@@ -69,19 +78,37 @@ class ExtractedElement:
         return f"{item.tag}|{item.role}|{item.text}|{item.aria_label}|{item.href_path}"
 
 
+async def _raw_infos(collection: Any, count: int) -> list[tuple[int, dict]]:
+    infos: list[tuple[int, dict]] = []
+    for index in range(count):
+        try:
+            raw = await collection.nth(index).evaluate(ELEMENT_INFO_SCRIPT)
+        except Exception:  # noqa: BLE001, S112 — 추출 중 DOM에서 사라진 요소는 건너뛴다
+            continue
+        infos.append((index, raw))
+    return infos
+
+
+def _priority(raw: dict) -> int:
+    text = f"{raw.get('text', '')} {raw.get('ariaLabel', '')} {raw.get('hrefPath', '')}"
+    return 0 if PRIORITY.search(text) else 1
+
+
 async def extract_elements(
     page: Any, private_values: tuple[str, ...] = ()
 ) -> list[ExtractedElement]:
-    """보이는 링크·버튼의 최소 메타데이터만 추출한다. 입력값과 HTML은 읽지 않는다."""
+    """보이는 링크·버튼의 최소 메타데이터만 추출한다. 입력값과 HTML은 읽지 않는다.
+
+    첫 화면은 강의·상품 링크가 수백 개라 앞 60개만 자르면 계정·로그인 메뉴가 빠진다 (#79).
+    최대 400개를 훑고 계정·설정·로그인 관련 요소를 앞에 둔 뒤(같은 묶음 안은 화면 순서) 60개를 고른다.
+    """
     collection = page.locator(INTERACTIVE_SELECTOR)
-    count = min(await collection.count(), MAX_CANDIDATES)
+    infos = await _raw_infos(collection, min(await collection.count(), MAX_SCAN))
+    infos.sort(key=lambda item: _priority(item[1]))  # 안정 정렬: 같은 묶음은 화면 순서 유지
     extracted: list[ExtractedElement] = []
-    for index in range(count):
-        locator = collection.nth(index)
-        try:
-            raw = await locator.evaluate(ELEMENT_INFO_SCRIPT)
-        except Exception:  # noqa: BLE001, S112 — 추출 중 DOM에서 사라진 요소는 건너뛴다
-            continue
+    for index, raw in infos:
+        if len(extracted) >= MAX_CANDIDATES:
+            break
         text = redact_for_llm(str(raw.get("text", "")), private_values)[:MAX_TEXT]
         aria = redact_for_llm(str(raw.get("ariaLabel", "")), private_values)[:MAX_TEXT]
         if not text and not aria:
@@ -94,7 +121,9 @@ async def extract_elements(
             role=str(raw.get("role", "")),
             href_path=redact_for_llm(str(raw.get("hrefPath", "")), private_values)[:160],
         )
-        extracted.append(ExtractedElement(candidate, locator, str(raw.get("href", ""))))
+        extracted.append(
+            ExtractedElement(candidate, collection.nth(index), str(raw.get("href", "")))
+        )
     return extracted
 
 
@@ -113,6 +142,8 @@ class GenericNavigator:
         self.emit = emit
         self.private_values = private_values
         self.visited: set[str] = set()
+        self.login_tried = False
+        """로그인 진입점을 이미 한 번 눌렀다 (두 번째부터는 누르지 않고 사용자에게 넘긴다)"""
         self.history: list[str] = []
 
     async def run(self, page: Any, start_step: int = 0) -> AgentResult:
@@ -180,8 +211,26 @@ class GenericNavigator:
             by_id = {item.candidate.id: item for item in elements}
             chosen = by_id.get(decision.choice) if decision.choice is not None else None
             if chosen is None:
-                return self._failed(
-                    attempt, current_url, decision.reason or "다음 동작을 찾지 못했습니다"
+                login = self._login_entry(elements)
+                if login is None:
+                    return self._failed(
+                        attempt, current_url, decision.reason or "다음 동작을 찾지 못했습니다"
+                    )
+                if self.login_tried:
+                    # 로그인 화면으로 갔는데도 계정 메뉴가 없다 → 사람이 로그인할 때까지 기다린다
+                    return AgentResult(
+                        AgentStatus.WAITING_FOR_USER,
+                        self.service_id,
+                        "로그인이 필요해 보입니다",
+                        attempt,
+                        current_url,
+                        "password",
+                    )
+                # 로그아웃 상태라 계정 메뉴가 없다 → 로그인 화면으로 데려간 뒤 사용자에게 넘긴다 (#79)
+                self.login_tried = True
+                chosen = login
+                decision = NextClick(
+                    login.candidate.id, "로그인이 필요해 로그인 화면으로 이동합니다"
                 )
             text = f"{chosen.candidate.text} {chosen.candidate.aria_label}".strip()
             if FORBIDDEN_ACTION.search(text):
@@ -222,6 +271,19 @@ class GenericNavigator:
 
         current_url = str(page.url() if callable(page.url) else page.url)
         return self._failed(MAX_STEPS, current_url, "최대 탐색 단계를 초과했습니다")
+
+    @staticmethod
+    def _login_entry(elements: list[ExtractedElement]) -> ExtractedElement | None:
+        return next(
+            (
+                item
+                for item in elements
+                if LOGIN.search(f"{item.candidate.text} {item.candidate.aria_label}")
+                and "로그아웃" not in item.candidate.text
+                and "log out" not in item.candidate.text.casefold()
+            ),
+            None,
+        )
 
     def _failed(self, step: int, url: str, reason: str) -> AgentResult:
         return AgentResult(
