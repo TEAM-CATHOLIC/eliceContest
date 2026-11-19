@@ -7,6 +7,7 @@ D-05 규칙: 탈퇴를 끝낸 서비스의 로그인 세션은 바로 지우고,
 `SESSION_RETENTION`이 지나면 지운다.
 """
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -93,14 +94,18 @@ class StatusStore:
 
     # --- 탈퇴 진행 ---
 
-    def agent_started(self, domain: str, service: str) -> None:
+    def agent_started(
+        self, domain: str, service: str, known_mail_ids: set[str] | None = None
+    ) -> None:
         """에이전트 안내 시작. 로그인 세션 보관도 이때부터 센다."""
         now = self._now()
         with self._db.transaction() as conn:
             conn.execute(
                 "INSERT INTO withdraw_progress"
                 " (domain, service, last_result, started_at, updated_at) VALUES (?, ?, 'started', ?, ?)"
-                " ON CONFLICT(domain) DO UPDATE SET last_result = 'started', updated_at = excluded.updated_at",
+                " ON CONFLICT(domain) DO UPDATE SET service = excluded.service,"
+                " last_result = 'started', started_at = excluded.started_at,"
+                " completed_at = NULL, updated_at = excluded.updated_at",
                 (domain, service, now, now),
             )
             conn.execute(
@@ -108,6 +113,21 @@ class StatusStore:
                 (domain, now),
             )
             self._event(conn, domain, EventKind.STARTED)
+            conn.execute("DELETE FROM completion_watch WHERE domain = ?", (domain,))
+            if known_mail_ids is not None:
+                conn.execute(
+                    "INSERT INTO completion_watch VALUES (?, ?, ?)",
+                    (domain, now, json.dumps(sorted(known_mail_ids))),
+                )
+            conn.execute("DELETE FROM reminders WHERE domain = ?", (domain,))
+
+    def completion_watch(self, domain: str) -> tuple[datetime, set[str]] | None:
+        row = self._db.connection().execute(
+            "SELECT started_at, known_ids FROM completion_watch WHERE domain = ?", (domain,)
+        ).fetchone()
+        if row is None:
+            return None
+        return from_text(row["started_at"]), set(json.loads(row["known_ids"]))
 
     def agent_finished(self, domain: str, result: str, reached: bool) -> None:
         """에이전트가 끝남. 탈퇴 화면에 도착했으면(최종 버튼은 사용자 몫) 재알림을 잡는다."""

@@ -72,6 +72,7 @@ class InventoryPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._selected: AccountCandidate | None = None
+        self.known_mail_ids: set[str] = set()
         self.model = CandidateListModel(self)
         self.proxy = CandidateFilterProxy(self)
         self.proxy.setSourceModel(self.model)
