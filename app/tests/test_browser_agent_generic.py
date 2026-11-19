@@ -273,3 +273,45 @@ def test_로그아웃_상태라_ai가_고르지_못하면_로그인_화면으로
     assert page.clicks == ["로그인"]
     assert result.status is AgentStatus.WAITING_FOR_USER
     assert result.reason == "password"
+
+
+class SlowPage(FakePage):
+    """처음 몇 초는 로딩 화면이라 링크·버튼이 없다가 나중에 뜨는 사이트."""
+
+    def __init__(self, elements, empty_polls):
+        super().__init__([])
+        self._later = elements
+        self.empty_polls = empty_polls
+        self.waits = 0
+
+    async def wait_for_timeout(self, _milliseconds):
+        self.waits += 1
+        if self.waits == self.empty_polls:  # 한 번만 화면이 뜬다 (그 뒤 클릭 이동은 그대로)
+            self.elements = self._later
+
+
+def test_로딩이_느린_사이트는_링크가_뜰_때까지_기다렸다가_진행한다():
+    # given (#79, flyasiana): 3초 동안 아무것도 안 보이는 첫 화면
+    final = [element("회원 탈퇴하기", tag="button")]
+    page = SlowPage([element("마이페이지", next=final)], empty_polls=3)
+    selector = FakeSelector(0)
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=selector).run(page))
+
+    # then
+    assert page.clicks == ["마이페이지"]
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+
+
+def test_15초를_기다려도_아무것도_안_뜨면_그때_실패한다():
+    # given
+    page = SlowPage([], empty_polls=999)
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector()).run(page))
+
+    # then
+    assert result.status is AgentStatus.FAILED
+    assert "15초" in result.message
+    assert page.waits == 15

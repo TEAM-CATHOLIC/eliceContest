@@ -28,6 +28,9 @@ COMMON_AUTH_DOMAINS = (
 """처음 보는 사이트의 소셜 로그인 도메인. 여기서는 조작하지 않고 사용자에게 넘긴다 (#79)."""
 LLM_FAILED_MESSAGE = "AI 응답을 받지 못했어요. 인터넷 연결과 Anthropic API 키를 확인해 주세요."
 
+LOAD_WAIT_MS = 15_000
+"""느린 사이트에서 링크·버튼이 보일 때까지 기다리는 최대 시간"""
+POLL_MS = 1_000
 MAX_CANDIDATES = 60
 MAX_SCAN = 400
 """화면의 링크·버튼을 이만큼까지 훑고, 계정·설정·로그인 관련을 앞에 두어 60개를 고른다"""
@@ -127,6 +130,17 @@ async def extract_elements(
     return extracted
 
 
+async def _settle(page: Any) -> None:
+    """페이지 로드(load 이벤트)를 잠깐 기다린다. 광고·분석 스크립트로 늦어지면 그냥 넘어간다."""
+    wait_load = getattr(page, "wait_for_load_state", None)
+    if wait_load is None:
+        return
+    try:
+        await wait_load("load", timeout=10_000)
+    except Exception:  # noqa: BLE001, S110 — 시간 초과여도 지금 화면으로 계속한다
+        pass
+
+
 class GenericNavigator:
     def __init__(
         self,
@@ -142,6 +156,7 @@ class GenericNavigator:
         self.emit = emit
         self.private_values = private_values
         self.visited: set[str] = set()
+        self._waited = False
         self.login_tried = False
         """로그인 진입점을 이미 한 번 눌렀다 (두 번째부터는 누르지 않고 사용자에게 넘긴다)"""
         self.history: list[str] = []
@@ -159,6 +174,7 @@ class GenericNavigator:
                     "external_auth",
                 )
             self.policy.require_allowed_url(current_url)
+            await _settle(page)
             handoff = await detect_handoff(page)
             if handoff:
                 return AgentResult(
@@ -170,7 +186,19 @@ class GenericNavigator:
                     handoff.reason,
                 )
 
-            elements = await extract_elements(page, self.private_values)
+            elements = await self._elements_when_ready(page, attempt, current_url)
+            if self._waited:
+                # 늦게 뜬 화면이 로그인 화면일 수 있다
+                handoff = await detect_handoff(page)
+                if handoff:
+                    return AgentResult(
+                        AgentStatus.WAITING_FOR_USER,
+                        self.service_id,
+                        "사용자 인증 또는 입력이 필요합니다",
+                        attempt,
+                        current_url,
+                        handoff.reason,
+                    )
             final = next(
                 (
                     item
@@ -195,7 +223,11 @@ class GenericNavigator:
                     current_url,
                 )
             if not elements:
-                return self._failed(attempt, current_url, "선택할 수 있는 링크나 버튼이 없습니다")
+                return self._failed(
+                    attempt,
+                    current_url,
+                    "15초를 기다려도 누를 수 있는 링크나 버튼이 보이지 않습니다",
+                )
 
             parsed = urlparse(current_url)
             try:
@@ -271,6 +303,30 @@ class GenericNavigator:
 
         current_url = str(page.url() if callable(page.url) else page.url)
         return self._failed(MAX_STEPS, current_url, "최대 탐색 단계를 초과했습니다")
+
+    async def _elements_when_ready(
+        self, page: Any, attempt: int, url: str
+    ) -> list[ExtractedElement]:
+        """링크·버튼이 하나도 안 보이면(로딩 화면, 늦게 그리는 사이트) 최대 15초 다시 본다 (#79)."""
+        self._waited = False
+        elements = await extract_elements(page, self.private_values)
+        wait = getattr(page, "wait_for_timeout", None)
+        waited = 0
+        while not elements and wait is not None and waited < LOAD_WAIT_MS:
+            if not self._waited:
+                self._waited = True
+                await self.emit(
+                    {
+                        "status": "running",
+                        "step": attempt,
+                        "reason": "화면이 뜨기를 기다리는 중입니다",
+                        "url": url,
+                    }
+                )
+            await wait(POLL_MS)
+            waited += POLL_MS
+            elements = await extract_elements(page, self.private_values)
+        return elements
 
     @staticmethod
     def _login_entry(elements: list[ExtractedElement]) -> ExtractedElement | None:
