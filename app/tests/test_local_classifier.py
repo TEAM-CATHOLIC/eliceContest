@@ -220,11 +220,23 @@ def test_명시한_모델경로가_틀리면_Fake로_숨기지않는다(monkeypa
         providers.get_analyzer()
 
 
-def test_미설정이면_ml패키지없이_Fake를_사용한다(monkeypatch):
+def test_미설정이면_ml패키지없이_Fake를_사용한다(monkeypatch, tmp_path):
     # given
     from account_cleaner.fakes import FakeAnalyzer
 
     monkeypatch.delenv("ACCOUNT_CLEANER_MODEL_DIR", raising=False)
     monkeypatch.delenv("ACCOUNT_CLEANER_FAKE", raising=False)
+    monkeypatch.setattr(classifier, "BUNDLED_MODEL_DIR", tmp_path)
     # when / then
     assert isinstance(providers.get_analyzer(), FakeAnalyzer)
+
+
+def test_경로를_지정하지_않아도_앱에_묶인_모델이_있으면_그_모델을_쓴다(monkeypatch, tmp_path):
+    # given
+    monkeypatch.delenv("ACCOUNT_CLEANER_MODEL_DIR", raising=False)
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(classifier, "BUNDLED_MODEL_DIR", tmp_path)
+    # when / then
+    assert classifier.is_configured()
+    with pytest.raises(FileNotFoundError, match="weights.json"):
+        classifier.create_analyzer()

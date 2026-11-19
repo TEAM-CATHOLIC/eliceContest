@@ -252,7 +252,8 @@ class Predictor:
         self.gate = (
             GateHead(json.loads(gate.read_text(encoding="utf-8"))) if gate.is_file() else None
         )
-        self.encoder = Encoder(self.manifest["model_path"])
+        # A relative path points inside the model folder, so a bundled model works on any PC.
+        self.encoder = Encoder(artifacts / self.manifest["model_path"])
 
     def predict(self, rows, on_progress=None, should_cancel=None):
         if not rows:
