@@ -48,6 +48,8 @@ MAX_MENU_TRIES = 2
 LOGIN = re.compile(r"로그인|log\s*in|sign\s*in", re.IGNORECASE)
 """로그아웃 상태의 로그인 진입점"""
 MAX_STEPS = 12
+CLICK_TIMEOUT_MS = 5_000
+"""Playwright 기본 30초 대신. 가려진 요소를 오래 붙잡지 않는다"""
 MAX_TEXT = 80
 INTERACTIVE_SELECTOR = "a:visible, button:visible, [role=link]:visible, [role=button]:visible"
 FORBIDDEN_ACTION = re.compile(
@@ -307,13 +309,39 @@ class GenericNavigator:
                     "url": current_url,
                 }
             )
-            await chosen.locator.click()
+            if not await self._click(page, chosen):
+                # 다른 요소(펼친 메뉴·고정 헤더)에 가려 못 눌렀다: 같은 요소를 다시 골라도 되게 하고 AI에 알린다
+                self.visited.discard(fingerprint)
+                self.history[-1] += " (다른 요소에 가려 누르지 못함, 다른 후보를 고를 것)"
+                continue
             wait = getattr(page, "wait_for_timeout", None)
             if wait is not None:
                 await wait(350)
 
         current_url = str(page.url() if callable(page.url) else page.url)
         return self._failed(MAX_STEPS, current_url, "최대 탐색 단계를 초과했습니다")
+
+    async def _click(self, page: Any, chosen: ExtractedElement) -> bool:
+        """누른다. 펼친 메뉴·고정 헤더가 가려 클릭이 막히면 30초씩 기다리지 않는다 (#79, inflearn).
+
+        1. 보통 클릭 (최대 5초)
+        2. 링크면 이미 허용 도메인 검사를 통과한 주소로 바로 이동
+        3. 버튼이면 그 요소에 직접 클릭 이벤트를 보낸다 (안전 검사는 이미 끝난 같은 요소)
+        """
+        try:
+            await chosen.locator.click(timeout=CLICK_TIMEOUT_MS)
+            return True
+        except Exception:  # 가려짐·시간 초과는 아래 방법으로 다시 시도
+            log.info("클릭이 막혀 다른 방법으로 시도", exc_info=True)
+        try:
+            if chosen.href and self.policy.is_url_allowed(chosen.href):
+                await page.goto(chosen.href)
+            else:
+                await chosen.locator.dispatch_event("click")
+        except Exception:
+            log.info("대체 클릭도 실패", exc_info=True)
+            return False
+        return True
 
     async def _elements_when_ready(
         self, page: Any, attempt: int, url: str
