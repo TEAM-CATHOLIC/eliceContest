@@ -248,6 +248,10 @@ class Predictor:
             raise ValueError("Unsupported local embedding model or input prefix")
         weights = json.loads((artifacts / "weights.json").read_text(encoding="utf-8"))
         self.clf = LinearHead(weights)
+        gate = artifacts / "gate.json"
+        self.gate = (
+            GateHead(json.loads(gate.read_text(encoding="utf-8"))) if gate.is_file() else None
+        )
         self.encoder = Encoder(self.manifest["model_path"])
 
     def predict(self, rows, on_progress=None, should_cancel=None):
@@ -255,7 +259,8 @@ class Predictor:
             return []
         x = self.encoder.encode(rows, on_progress, should_cancel)
         output = []
-        for row, probabilities in zip(rows, self.clf.predict_proba(x)):
+        gates = self.gate.predict(x) if self.gate else [None] * len(rows)
+        for row, probabilities, gate in zip(rows, self.clf.predict_proba(x), gates):
             values = {str(c): float(p) for c, p in zip(self.clf.classes_, probabilities)}
             model_label = max(values, key=values.get)
             rule_label, reason = explicit_rule(row.get("subject", ""), row.get("body_text", ""))
@@ -272,10 +277,46 @@ class Predictor:
                     "scores": values,
                     "needs_review": not rule_label and values[label] < 0.6,
                     "stage_hint": stage_hint(row.get("subject", ""), row.get("body_text", "")),
+                    "gate": gate,
                     "model_status": "development_draft_labels",
                 }
             )
         return output
+
+
+class GateHead:
+    """Optional relevance head (gate.json); None below its threshold keeps prior behavior."""
+
+    LABELS = frozenset({"usage", "promo", "requested", "scheduled", "suspicious", "unrelated"})
+
+    def __init__(self, weights):
+        import numpy as np
+
+        self.classes_ = weights["classes"]
+        self.threshold = float(weights["threshold"])
+        self.coef = np.asarray(weights["coef"], dtype=float)
+        self.intercept = np.asarray(weights["intercept"], dtype=float)
+        if (
+            not set(self.classes_) <= self.LABELS
+            or self.coef.shape != (len(self.classes_), 384)
+            or self.intercept.shape != (len(self.classes_),)
+            or not np.isfinite(self.coef).all()
+            or not np.isfinite(self.intercept).all()
+            or not 0 < self.threshold <= 1
+        ):
+            raise ValueError("Invalid relevance gate weights")
+
+    def predict(self, x):
+        import numpy as np
+
+        logits = x @ self.coef.T + self.intercept
+        logits -= logits.max(axis=1, keepdims=True)
+        values = np.exp(logits)
+        values /= values.sum(axis=1, keepdims=True)
+        return [
+            self.classes_[i] if row[i] >= self.threshold else None
+            for row, i in zip(values, values.argmax(axis=1))
+        ]
 
 
 class LinearHead:

@@ -1,5 +1,6 @@
 """Local ML + explicit rules implementing the team's AccountAnalyzer contract."""
 
+import math
 from collections import defaultdict
 
 from account_cleaner.contracts import (
@@ -12,6 +13,18 @@ from account_cleaner.contracts import (
 
 from .model import Predictor
 from .services import resolve_service
+
+# How strongly one mail of each type suggests an account exists (hand-set, not measured).
+STRENGTH = {
+    "signup": 0.85,
+    "security": 0.85,
+    "activity": 0.60,
+    "terms": 0.60,
+    "deleted": 0.05,
+    "promo": 0.0,
+}
+MODEL_DISCOUNT = 0.7
+"""Evidence decided by the model alone counts less than evidence matched by an explicit rule."""
 
 
 class LocalAccountAnalyzer(AccountAnalyzer):
@@ -32,6 +45,12 @@ class LocalAccountAnalyzer(AccountAnalyzer):
         for mail, pred in zip(ordered, predictions):
             if should_cancel and should_cancel():
                 raise AnalysisCancelled()
+            # Explicit rules win; the optional gate only filters model-decided mail.
+            if pred["decision_source"] != "rule":
+                if pred.get("gate") in ("suspicious", "unrelated"):
+                    continue
+                if pred.get("gate") == "promo":
+                    pred = {**pred, "type": "promo"}
             service = resolve_service(mail)
             if service:
                 groups[service].append((mail, pred))
@@ -51,19 +70,16 @@ class LocalAccountAnalyzer(AccountAnalyzer):
                 )
                 for m, p in items
             )
-            # Uncalibrated ranking heuristic, not a validated existence probability.
-            score = max(
-                {
-                    "signup": 0.65,
-                    "security": 0.60,
-                    "activity": 0.30,
-                    "terms": 0.25,
-                    "deleted": 0.05,
-                    "promo": 0,
-                }[p["type"]]
-                * (1.0 if p["decision_source"] == "rule" else p["classification_score"])
-                for _, p in items
-            )
+            # Evidence-strength heuristic, not a measured existence probability. The strongest
+            # mail of each type counts once, so different kinds of evidence add up while
+            # repeats of one kind do not. Raw softmax scores are not used as confidence.
+            strength = defaultdict(float)
+            for _, p in items:
+                weight = STRENGTH[p["type"]] * (
+                    1.0 if p["decision_source"] == "rule" else MODEL_DISCOUNT
+                )
+                strength[p["type"]] = max(strength[p["type"]], weight)
+            score = 1.0 - math.prod(1.0 - w for w in strength.values())
             decisive = [
                 (m, p)
                 for m, p in items
