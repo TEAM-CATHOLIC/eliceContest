@@ -74,6 +74,17 @@ uv run --group ml account-cleaner --import-file 'C:\local-only\sample.mbox'
 
 가중치는 AI 보조 판정 라벨로 학습한 개발 버전이며 독립 평가 정확도가 아니다. 학습 자료와 가중치는 저장소에 넣지 않는다.
 
+## 모델 받기와 AI 포함 빌드
+
+모델 폴더는 저장소에 없고 GitHub Release `model-e5ft-20261120`의 `classifier-model-e5ft.zip`(319MB)으로 받는다. E5 인코더를 메일 자료로 파인튜닝한 모델이다([모델 카드 5.6](../docs/05_모델카드_학습근거.md)).
+
+```powershell
+gh release download model-e5ft-20261120 --repo TEAM-CATHOLIC/eliceContest --pattern classifier-model-e5ft.zip
+Expand-Archive classifier-model-e5ft.zip -DestinationPath src\account_cleaner\classifier\bundled
+```
+
+`classifier/bundled/`에 풀어 두면 `ACCOUNT_CLEANER_MODEL_DIR` 없이 개발 실행과 PyInstaller 빌드 모두 이 모델을 쓴다. 이 폴더는 git에서 제외된다. SHA-256: `8318E82D45E1504655D7BF9D0F20BBBCA79D29AF7AC2ADE27BCA786FB424579E`
+
 ## 검증
 
 기본 테스트는 합성 ParsedMail과 가짜 predictor를 사용해 네트워크·사적인 메일·ML 의존성 없이 실행한다. 실제 로컬 모델 추론은 ML 그룹과 로컬 가중치로 별도로 점검한다.
