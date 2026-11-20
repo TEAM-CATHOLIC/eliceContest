@@ -36,7 +36,18 @@ def resolve_service(mail):
     if domain in PERSONAL_MAIL:
         # Mail from a person's mailbox is not mail from that mailbox provider's service.
         return None
+    for root, service in SERVICE_FAMILIES.items():
+        # One service often sends from several subdomains; keep them as one candidate.
+        if domain == root or domain.endswith("." + root):
+            return service
     return SERVICES.get(domain, (domain, domain))
+
+
+SERVICE_FAMILIES = {
+    "dropbox.com": ("Dropbox", "dropbox.com"),
+    "github.com": ("GitHub", "github.com"),
+    "linkedin.com": ("LinkedIn", "linkedin.com"),
+}
 
 
 PERSONAL_MAIL = frozenset(

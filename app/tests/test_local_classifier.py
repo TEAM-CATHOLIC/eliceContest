@@ -171,6 +171,26 @@ def test_개인_메일_주소에서_온_메일은_그_메일_서비스의_계정
     assert resolve_service(mail(1, domain="navercorp.com")) == ("네이버", "naver.com")
 
 
+def test_대표_서비스의_여러_발신_하위도메인은_한_후보로_묶는다():
+    # given
+    a = analyzer(
+        {"1": ("signup", "unknown"), "2": ("security", "unknown"), "3": ("promo", "unknown")}
+    )
+    messages = [
+        mail(1, domain="txn.dropbox.com"),
+        mail(2, domain="dropbox.com"),
+        mail(3, domain="em-s.dropbox.com"),
+    ]
+    # when
+    result = a.analyze(messages)
+    # then
+    assert [(c.service, c.domain, len(c.evidence)) for c in result] == [
+        ("Dropbox", "dropbox.com", 3)
+    ]
+    assert resolve_service(mail(4, domain="e.linkedin.com")) == ("LinkedIn", "linkedin.com")
+    assert resolve_service(mail(5, domain="notdropbox.com")) == ("notdropbox.com", "notdropbox.com")
+
+
 def test_빈입력과_취소를_지원한다():
     # given
     a = analyzer({})
