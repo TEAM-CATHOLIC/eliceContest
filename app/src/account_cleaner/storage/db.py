@@ -83,6 +83,14 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX progress_events_at ON progress_events (at);
     """,
+    # 4: 이번 안내의 완료 메일 검사 기준. 본문/제목은 저장하지 않는다.
+    """
+    CREATE TABLE completion_watch (
+        domain TEXT PRIMARY KEY,
+        started_at TEXT NOT NULL,
+        known_ids TEXT NOT NULL
+    );
+    """,
 ]
 
 

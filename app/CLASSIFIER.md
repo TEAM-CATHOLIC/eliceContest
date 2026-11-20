@@ -68,6 +68,23 @@ uv run --group ml account-cleaner --import-file 'C:\local-only\sample.mbox'
 
 로컬 점검에서는 실제 수신 날짜가 보존된 마스킹 메일 51통을 사용하여 파일 파서 → 실제 LocalAccountAnalyzer → 계정 후보 48개 → 인벤토리와 본문 미리보기 연결을 확인했다. 전체 메일함이나 정답 라벨에 대한 정확도 측정이 아니다. 이 점검의 브라우저/플레이북은 Fake이며 실제 사이트 탈퇴 안내 완료를 뜻하지 않는다. 메일 데이터와 모델 가중치는 저장소에 포함하지 않는다.
 
+## 관련성 판정 (선택)
+
+모델 폴더에 `gate.json`이 있으면 6종 유형 분류와 별도로 메일의 관련성(usage/promo/requested/scheduled/suspicious/unrelated)을 판정한다. 파일이 없으면 기존 동작 그대로다. 확률이 파일에 적힌 임계값 미만이면 판정하지 않는다. 명시적 규칙이 결정한 메일은 건드리지 않는다. 의심·업무 메일은 후보 근거에서 빼고, 광고는 점수 0의 약한 흔적으로 낮춘다. 6종 유형 계약과 가중치는 바꾸지 않는다.
+
+가중치는 AI 보조 판정 라벨로 학습한 개발 버전이며 독립 평가 정확도가 아니다. 학습 자료와 가중치는 저장소에 넣지 않는다.
+
+## 모델 받기와 AI 포함 빌드
+
+모델 폴더는 저장소에 없고 GitHub Release `model-e5ft-20261120`의 `classifier-model-e5ft.zip`(319MB)으로 받는다. E5 인코더를 메일 자료로 파인튜닝한 모델이다([모델 카드 5.6](../docs/05_모델카드_학습근거.md)).
+
+```powershell
+gh release download model-e5ft-20261120 --repo TEAM-CATHOLIC/eliceContest --pattern classifier-model-e5ft.zip
+Expand-Archive classifier-model-e5ft.zip -DestinationPath src\account_cleaner\classifier\bundled
+```
+
+`classifier/bundled/`에 풀어 두면 `ACCOUNT_CLEANER_MODEL_DIR` 없이 개발 실행과 PyInstaller 빌드 모두 이 모델을 쓴다. 이 폴더는 git에서 제외된다. SHA-256: `8318E82D45E1504655D7BF9D0F20BBBCA79D29AF7AC2ADE27BCA786FB424579E`
+
 ## 검증
 
 기본 테스트는 합성 ParsedMail과 가짜 predictor를 사용해 네트워크·사적인 메일·ML 의존성 없이 실행한다. 실제 로컬 모델 추론은 ML 그룹과 로컬 가중치로 별도로 점검한다.

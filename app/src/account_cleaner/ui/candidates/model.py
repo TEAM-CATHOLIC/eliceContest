@@ -92,6 +92,24 @@ def evidence_label(evidence: Evidence) -> str:
     return evidence.type.label
 
 
+ACCOUNT_THRESHOLD = 0.5
+"""이 점수 이상이면 "계정 있음"으로 보여 준다. 점수 자체는 정렬에만 쓰고 화면에 내지 않는다."""
+
+
+def has_account(candidate: AccountCandidate) -> bool:
+    return candidate.score >= ACCOUNT_THRESHOLD
+
+
+def verdict_label(candidate: AccountCandidate) -> str:
+    """메일 근거로 본 판정. 탈퇴 완료 메일이 마지막이면 "탈퇴 완료", 가입을 끝낸 근거가 없으면
+    "아님"이 아니라 "확인 안 됨"이다."""
+    if has_account(candidate):
+        return "계정 있음"
+    if any(e.type is EvidenceType.DELETED and e.probability == 1.0 for e in candidate.evidence):
+        return "탈퇴 완료"
+    return "확인 안 됨"
+
+
 def evidence_summary(candidate: AccountCandidate, limit: int = 3) -> str:
     """대표 근거 유형과 개수. 예: "가입·인증 2 · 보안·복구 1" """
     counts = Counter(evidence_label(e) for e in candidate.evidence)
@@ -109,7 +127,7 @@ class CandidateRow:
         first = f"{c.service}   {c.domain}"
         second = " · ".join(
             [
-                f"신뢰도 {round(c.score * 100)}%",
+                verdict_label(c),
                 evidence_summary(c),
                 f"마지막 메일 {c.last_seen:%Y-%m-%d}",
                 self.status.label,

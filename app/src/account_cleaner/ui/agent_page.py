@@ -8,6 +8,7 @@
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 from account_cleaner import providers
+from account_cleaner.browser.agent.generic import COMMON_AUTH_DOMAINS
+from account_cleaner.browser.agent.llm import llm_available
 from account_cleaner.contracts import (
     AccountCandidate,
     AgentEvent,
@@ -31,6 +34,8 @@ from account_cleaner.contracts import (
     Playbook,
     WithdrawAgent,
 )
+from account_cleaner.contracts.login import LoginMethod
+from account_cleaner.ui.activity import RunIndicator
 from account_cleaner.ui.theme import page_header, page_layout, section_card, set_role, tokens
 from account_cleaner.ui.workers import BackgroundTask
 
@@ -46,11 +51,29 @@ STATUS_TEXT = {
     AgentStatus.FAILED: "진행하지 못했습니다",
 }
 
+PHASE_TEXT = {
+    AgentStatus.NAVIGATING: "AI가 다음 화면을 찾는 중",
+    AgentStatus.USER_TURN: "Chrome 창에서 직접 처리하기를 기다리는 중",
+    AgentStatus.REACHED: "탈퇴 화면 도착 · Chrome 창을 닫으면 끝나요",
+}
+"""진행 표시 줄 문구 (#83)"""
+
 # 단계 행 앞 표시
 DONE, CURRENT, WAITING, PENDING, LOCKED = "✓", "▶", "⏸", "○", "🔒"
 
 AgentFactory = Callable[[Path], WithdrawAgent]
 PlaybookLoader = Callable[[], dict[str, Playbook]]
+GenericAvailability = Callable[[], bool]
+
+
+def generic_domain_ok(domain: str) -> bool:
+    """범용 안내를 시작해도 되는 후보 도메인인지. 서비스 이름만 찾은 `*.invalid`나 주소 조각은 제외 (#79)."""
+    return (
+        bool(domain)
+        and "." in domain
+        and not domain.endswith(".invalid")
+        and not any(c in domain for c in "/:@ ")
+    )
 
 
 class _EventRelay(QObject):
@@ -111,6 +134,8 @@ CandidateLookup = Callable[[str], AccountCandidate | None]
 
 class AgentPage(QWidget):
     run_finished = Signal(object)
+    running_changed = Signal(bool)
+    """안내가 시작되면 True, 끝나면 False (사이드바 '진행' 배지용, #83)"""
     """마지막 `AgentEvent` (종료 상태)"""
 
     def __init__(
@@ -119,17 +144,20 @@ class AgentPage(QWidget):
         agent_factory: AgentFactory = providers.get_withdraw_agent,
         playbook_loader: PlaybookLoader = providers.get_playbooks,
         include_demo: bool = True,
+        generic_available: GenericAvailability = llm_available,
     ) -> None:
         super().__init__()
         self._profile_dir = profile_dir
         self._agent_factory = agent_factory
         self._playbooks = playbook_loader()
         self._include_demo = include_demo
+        self._generic_available = generic_available
         self._agent: WithdrawAgent | None = None
         self._task: BackgroundTask | None = None
         self._demo_server = None
         self.guide_dialog = None
         self._candidate_lookup: CandidateLookup = lambda _domain: None
+        self._private_values: tuple[str, ...] = ()
         self.current_domain: str | None = None
         """후보 상세에서 시작한 안내일 때 그 후보의 도메인 (결과 기록용)"""
         self._relay = _EventRelay(self)
@@ -163,6 +191,8 @@ class AgentPage(QWidget):
         chooser.addWidget(self.start_button)
         chooser.addWidget(self.stop_button)
         control.addLayout(chooser)
+        self.activity = RunIndicator()
+        control.addWidget(self.activity)
 
         # 왼쪽: 진행 단계 (+ 사용자 차례 알림)
         self.steps = StepList()
@@ -264,7 +294,42 @@ class AgentPage(QWidget):
 
     def playbook_for_domain(self, domain: str) -> Playbook | None:
         """계정 후보 도메인에 맞는 플레이북 (상세 패널의 'AI 에이전트로 탈퇴 진행' 활성화에 씀)."""
-        return next((p for p in self._playbooks.values() if p.matches_domain(domain)), None)
+        known = next((p for p in self._playbooks.values() if p.matches_domain(domain)), None)
+        if known is not None:
+            if known.id.startswith("generic:") and known.private_values != self._private_values:
+                known = replace(known, private_values=self._private_values)
+                self._playbooks[known.id] = known
+            return known
+        domain = domain.strip().lower().rstrip(".")
+        if not self._generic_available() or not generic_domain_ok(domain):
+            return None
+        playbook_id = f"generic:{domain}"
+        generic = self._playbooks.get(playbook_id)
+        if generic is None:
+            url = f"https://{domain}"
+            generic = Playbook(
+                id=playbook_id,
+                service=domain,
+                domains=(domain,),
+                login_methods=(LoginMethod.EMAIL,),
+                login_url=url,
+                password_reset_url=url,
+                withdraw_url=url,
+                auth_domains=COMMON_AUTH_DOMAINS,
+                steps=(),
+                private_values=self._private_values,
+            )
+            self._playbooks[playbook_id] = generic
+            self.service_combo.addItem(f"{domain} · AI 실험", playbook_id)
+        return generic
+
+    def set_private_values(self, values: tuple[str, ...]) -> None:
+        """메일 연결에서 확인한 사용자 식별자를 LLM 마스킹에만 전달한다."""
+        cleaned = tuple(dict.fromkeys(value.strip() for value in values if len(value.strip()) >= 2))
+        self._private_values = cleaned
+        for key, playbook in tuple(self._playbooks.items()):
+            if key.startswith("generic:"):
+                self._playbooks[key] = replace(playbook, private_values=cleaned)
 
     def set_candidate_lookup(self, lookup: CandidateLookup) -> None:
         """안내 창에 메일에서 찾은 가입 방식을 보여 주려고 인벤토리 후보를 찾는다."""
@@ -326,6 +391,11 @@ class AgentPage(QWidget):
     def _on_event(self, event: AgentEvent) -> None:
         self.steps.update_from(event)
         self.status_label.setText(STATUS_TEXT[event.status])
+        if event.status in PHASE_TEXT and self.is_running():
+            self.activity.set_phase(
+                PHASE_TEXT[event.status],
+                waiting=event.status is not AgentStatus.NAVIGATING,
+            )
         if event.url:
             self.url_label.setText(event.url)
         if event.message:
@@ -354,6 +424,11 @@ class AgentPage(QWidget):
     # --- 기타 ---
 
     def _set_running(self, running: bool) -> None:
+        if running:
+            self.activity.start("Chrome을 여는 중")
+        else:
+            self.activity.stop()
+        self.running_changed.emit(running)
         self.start_button.setEnabled(not running)
         self.service_combo.setEnabled(not running)
         self.stop_button.setEnabled(running)

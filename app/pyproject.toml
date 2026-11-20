@@ -8,11 +8,13 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "anthropic>=0.75",
     "cryptography>=46",
     "google-api-python-client>=2.202.0",
     "google-auth-oauthlib>=1.5.0",
     "keyring>=25",
     "playwright>=1.65.1",
+    "pydantic>=2.12",
     "pyside6-essentials>=6.12.0",
 ]
 

@@ -7,6 +7,8 @@ import os
 import re
 from pathlib import Path
 
+from .phishing import looks_like_phishing
+
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
@@ -29,9 +31,30 @@ def load_rows(path):
     return rows
 
 
+DELETED_COMPLETED = re.compile(
+    # Explicit "already done" wording only: scheduled, requested and conditional forms do not match.
+    r"(?:회원\s*)?탈퇴(?:\s*처리)?(?:가|는)?\s*(?:정상(?:적으로)?\s*)?(?:완료|처리)\s*"
+    r"(?:되었습니다|됐습니다|되었어요|됐어요)|"
+    r"계정(?:이|은|의)?\s*(?:영구\s*)?(?:삭제\s*처리(?:가)?\s*되었습니다|"
+    r"삭제(?:가)?\s*(?:되었습니다|되었어요|완료(?:되었습니다|됐습니다|됐어요))|"
+    r"안전하게\s*파기되었습니다)|"
+    r"탈퇴\s*안내[\s\S]{0,80}(?:사용|이용)이\s*해지되었습니다|"
+    r"(?i:\baccount\b[^.\n]{0,40}\b(?:has been|was)\s+(?:successfully\s+|permanently\s+)*"
+    r"(?:deleted|closed|removed)\b)|"
+    r"(?i:\bwe(?:'ve|’ve| have)?\s+(?:permanently\s+)?(?:deleted|closed)\s+your\b[^.\n]{0,20}"
+    r"\baccount\b)|"
+    r"(?i:\baccount deletion (?:is )?complete)"
+)
+
+
+SIGNUP_WORDS = r"가입|이메일 인증|joining|join us|sign(?:ing)? up|register"
+
+
 def stage_hint(subject, body):
     """Supplementary deterministic hint, independent from six-way ML prediction."""
     text = subject + "\n" + body[:1600]
+    if looks_like_phishing(subject, body):
+        return "phishing_suspected"
     if re.search(r"계정.{0,25}(?:찾을 수 없|찾지 못|연결된 계정이 없)", text):
         return "account_not_found"
     if "이미 연결된 AWS 계정" in text or "이메일이 이미 AWS 계정" in text:
@@ -41,9 +64,15 @@ def stage_hint(subject, body):
     if re.search(
         r"(?:계정.{0,30}(?:삭제처리 되었|삭제되었습니다|안전하게 파기되었)|회원 탈퇴(?:가| 처리가)? 완료)",
         text,
-    ):
+    ) or DELETED_COMPLETED.search(text):
         return "account_deleted_completed"
     if re.search(r"인증.{0,15}(?:필수적인 단계|마쳐야|완료해야)|이메일.{0,5}인증(?:하기|해)", text):
+        return "requested"
+    if re.search(
+        r"verification code|verify your email|confirm your email|인증\s*번호|인증\s*코드",
+        text,
+        re.IGNORECASE,
+    ) and re.search(SIGNUP_WORDS, text, re.IGNORECASE):
         return "requested"
     if re.search(
         r"비밀번호.{0,30}(?:요청|링크입니다)|비밀번호.{0,15}변경해주세요", text
@@ -63,7 +92,7 @@ def explicit_rule(subject, body):
         return "promo", "제목의 광고 표시"
     if re.search(r"약관|처리방침|개인정보 이용.{0,5}내역|휴면", subject):
         return "terms", "제목의 약관·휴면 안내"
-    if hint == "requested" and re.search(r"가입|이메일 인증", subject + " " + body[:500]):
+    if hint == "requested" and re.search(SIGNUP_WORDS, subject + " " + body[:500], re.IGNORECASE):
         return "signup", "가입용 이메일 인증 요청"
     if re.search(r"회원\s*가입\s*완료", subject) and re.search(
         r"회원이 되신|가입.{0,15}완료|계정 생성.{0,15}완료", body[:600]
@@ -248,14 +277,20 @@ class Predictor:
             raise ValueError("Unsupported local embedding model or input prefix")
         weights = json.loads((artifacts / "weights.json").read_text(encoding="utf-8"))
         self.clf = LinearHead(weights)
-        self.encoder = Encoder(self.manifest["model_path"])
+        gate = artifacts / "gate.json"
+        self.gate = (
+            GateHead(json.loads(gate.read_text(encoding="utf-8"))) if gate.is_file() else None
+        )
+        # A relative path points inside the model folder, so a bundled model works on any PC.
+        self.encoder = Encoder(artifacts / self.manifest["model_path"])
 
     def predict(self, rows, on_progress=None, should_cancel=None):
         if not rows:
             return []
         x = self.encoder.encode(rows, on_progress, should_cancel)
         output = []
-        for row, probabilities in zip(rows, self.clf.predict_proba(x)):
+        gates = self.gate.predict(x) if self.gate else [None] * len(rows)
+        for row, probabilities, gate in zip(rows, self.clf.predict_proba(x), gates):
             values = {str(c): float(p) for c, p in zip(self.clf.classes_, probabilities)}
             model_label = max(values, key=values.get)
             rule_label, reason = explicit_rule(row.get("subject", ""), row.get("body_text", ""))
@@ -272,10 +307,46 @@ class Predictor:
                     "scores": values,
                     "needs_review": not rule_label and values[label] < 0.6,
                     "stage_hint": stage_hint(row.get("subject", ""), row.get("body_text", "")),
+                    "gate": gate,
                     "model_status": "development_draft_labels",
                 }
             )
         return output
+
+
+class GateHead:
+    """Optional relevance head (gate.json); None below its threshold keeps prior behavior."""
+
+    LABELS = frozenset({"usage", "promo", "requested", "scheduled", "suspicious", "unrelated"})
+
+    def __init__(self, weights):
+        import numpy as np
+
+        self.classes_ = weights["classes"]
+        self.threshold = float(weights["threshold"])
+        self.coef = np.asarray(weights["coef"], dtype=float)
+        self.intercept = np.asarray(weights["intercept"], dtype=float)
+        if (
+            not set(self.classes_) <= self.LABELS
+            or self.coef.shape != (len(self.classes_), 384)
+            or self.intercept.shape != (len(self.classes_),)
+            or not np.isfinite(self.coef).all()
+            or not np.isfinite(self.intercept).all()
+            or not 0 < self.threshold <= 1
+        ):
+            raise ValueError("Invalid relevance gate weights")
+
+    def predict(self, x):
+        import numpy as np
+
+        logits = x @ self.coef.T + self.intercept
+        logits -= logits.max(axis=1, keepdims=True)
+        values = np.exp(logits)
+        values /= values.sum(axis=1, keepdims=True)
+        return [
+            self.classes_[i] if row[i] >= self.threshold else None
+            for row, i in zip(values, values.argmax(axis=1))
+        ]
 
 
 class LinearHead:

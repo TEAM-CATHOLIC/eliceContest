@@ -33,7 +33,56 @@ def resolve_service(mail):
         if "제로투히어로" in text:
             return "제로투히어로", "zerotohero.co.kr"
         return None
-    return SERVICES.get(domain, (domain, domain))
+    if domain in PERSONAL_MAIL:
+        # Mail from a person's mailbox is not mail from that mailbox provider's service.
+        return None
+    for root, service in SERVICE_FAMILIES.items():
+        # One service often sends from several subdomains; keep them as one candidate.
+        if domain == root or domain.endswith("." + root):
+            return service
+    if domain in SERVICES:
+        return SERVICES[domain]
+    root = registrable_domain(domain)
+    return SERVICES.get(root, (root, root))
+
+
+_SECOND_LEVEL = {"co", "or", "go", "ac", "re", "ne", "pe", "com", "net", "org", "gov", "edu"}
+
+
+def registrable_domain(domain):
+    """info.mexc.com -> mexc.com, mail.example.co.kr -> example.co.kr (no public suffix list)."""
+    parts = domain.split(".")
+    if ":" in domain or parts[-1].isdigit():  # IP addresses (e.g. the local demo) stay as-is
+        return domain
+    keep = 3 if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in _SECOND_LEVEL else 2
+    return ".".join(parts[-keep:])
+
+
+SERVICE_FAMILIES = {
+    "dropbox.com": ("Dropbox", "dropbox.com"),
+    "github.com": ("GitHub", "github.com"),
+    "linkedin.com": ("LinkedIn", "linkedin.com"),
+}
+
+
+PERSONAL_MAIL = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "naver.com",
+        "hanmail.net",
+        "daum.net",
+        "nate.com",
+        "kakao.com",
+        "hotmail.com",
+        "outlook.com",
+        "live.com",
+        "yahoo.com",
+        "yahoo.co.kr",
+        "icloud.com",
+        "me.com",
+    }
+)
 
 
 CAFE24_STORES = {
@@ -148,4 +197,10 @@ LINKED_SERVICES = {
 }
 
 
-PROCESSORS = {"bill-mail.tosspayments.com", "inicis.com", "easypay.co.kr", "tosspayments.com"}
+PROCESSORS = {
+    "bill-mail.tosspayments.com",
+    "inicis.com",
+    "easypay.co.kr",
+    "tosspayments.com",
+    "kcp.co.kr",
+}

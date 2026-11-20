@@ -62,9 +62,19 @@ def test_신뢰도는_어떤_근거_메일이_만들었는지_문장으로_설�
     text = explain_score(SHOP)
 
     # then
-    assert text.startswith("신뢰도 92%")
-    assert "가입·인증 메일 1통(최고 95%)" in text
-    assert "광고·초대 메일 1통(최고 60%)" in text
+    assert text.startswith("계정 있음")
+    assert "가입·인증 메일 1통" in text
+    assert "광고·초대 메일 1통" in text
+    assert "%" not in text
+
+
+def test_근거_메일에는_판단에_쓰인_문장이_함께_보인다(panel):
+    # given / when
+    panel.show_candidate(SHOP, CandidateStatus.UNREVIEWED)
+
+    # then
+    assert "“샘플쇼핑 회원가입이 완료되었습니다.”" in panel.evidence_list.item(0).text()
+    assert "%" not in panel.evidence_list.item(0).text()
 
 
 def test_모델의_삭제추정은_탈퇴완료로_설명하지않는다():
@@ -81,11 +91,20 @@ def test_명시적_삭제완료도_현재상태로_단정하지않는다():
     assert "재가입" in explain_score(candidate)
 
 
-def test_광고만있는_후보는_가입미확인으로_설명한다():
+def test_광고만있는_후보는_회원일_가능성과_가입메일이_없음을_함께_설명한다():
     candidate = AccountCandidate(
-        "샘플", "sample.example", 0, (Evidence("x", EvidenceType.PROMO, 0.9),), T, T
+        "샘플", "sample.example", 0.55, (Evidence("x", EvidenceType.PROMO, 0.9),), T, T
     )
-    assert "약한 흔적" in explain_score(candidate)
+    text = explain_score(candidate)
+    assert text.startswith("계정 있음")
+    assert "회원에게만" in text and "찾지 못했습니다" in text
+
+
+def test_탈퇴완료_메일이_마지막인_후보는_탈퇴_완료로_보인다():
+    candidate = AccountCandidate(
+        "샘플", "sample.example", 0.1, (Evidence("x", EvidenceType.DELETED, 1.0),), T, T
+    )
+    assert explain_score(candidate).startswith("탈퇴 완료")
 
 
 def test_후보를_고르기_전에는_안내만_보인다(panel):
@@ -103,8 +122,10 @@ def test_후보를_고르면_서비스_날짜_가입_방식_근거_메일이_보
     assert "처음 메일 2024.03.11" in panel.dates_label.text()
     assert panel.login_label.text() == "메일에 적힌 가입 방식: 카카오"
     rows = [panel.evidence_list.item(i).text() for i in range(panel.evidence_list.count())]
-    assert rows[0] == "2024.03.11  가입을 환영합니다\n[가입·인증] 95%"
-    assert rows[1] == "[광고·초대] 60% · 메일 <m2@shop>"  # 가져온 메일에 없으면 ID만
+    assert rows[0] == (
+        "2024.03.11  가입을 환영합니다\n[가입·인증] “샘플쇼핑 회원가입이 완료되었습니다.”"
+    )
+    assert rows[1] == "[광고·초대] · 메일 <m2@shop>"  # 가져온 메일에 없으면 ID만
 
 
 def test_근거_메일을_고르면_본문_앞부분만_미리_보인다(panel):
@@ -179,6 +200,40 @@ def test_에이전트_화면은_후보_도메인에_맞는_플레이북을_찾�
     assert agent_page.playbook_for_domain("unknown.example.io") is None
     agent_page.stop()
     BackgroundTask.shutdown_all()
+
+
+def test_api키가_있으면_플레이북없는_도메인에_범용_플레이북을_만든다(qtbot, tmp_path):
+    agent_page = AgentPage(
+        tmp_path / "profile",
+        agent_factory=lambda d: FakeWithdrawAgent(d, step_delay=0.01),
+        playbook_loader=lambda: load_playbooks(SAMPLE_PLAYBOOK_DIR),
+        include_demo=False,
+        generic_available=lambda: True,
+    )
+    qtbot.addWidget(agent_page)
+
+    playbook = agent_page.playbook_for_domain("unknown.example.io")
+
+    assert playbook is not None
+    assert playbook.id == "generic:unknown.example.io"
+    assert playbook.steps == ()
+    assert agent_page.service_combo.findData(playbook.id) >= 0
+
+
+def test_메일계정_식별자가_범용_플레이북의_마스킹값으로_연결된다(qtbot, tmp_path):
+    agent_page = AgentPage(
+        tmp_path / "profile",
+        playbook_loader=dict,
+        include_demo=False,
+        generic_available=lambda: True,
+    )
+    qtbot.addWidget(agent_page)
+    agent_page.set_private_values(("hong@example.com", "홍길동"))
+
+    playbook = agent_page.playbook_for_domain("unknown.example.io")
+
+    assert playbook is not None
+    assert playbook.private_values == ("hong@example.com", "홍길동")
 
 
 # --- 로그인·복구·탈퇴 전 조건 안내 (#14) ---

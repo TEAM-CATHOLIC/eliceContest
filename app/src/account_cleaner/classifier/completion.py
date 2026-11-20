@@ -6,13 +6,9 @@ from datetime import datetime
 
 from account_cleaner.contracts import ParsedMail
 
+from .model import DELETED_COMPLETED as _COMPLETED
+from .phishing import looks_like_phishing
 from .services import resolve_service
-
-_COMPLETED = re.compile(
-    r"(?:회원\s*탈퇴(?:\s*처리)?(?:가|는)?\s*완료(?:되었습니다|됐습니다|되었어요)|"
-    r"계정(?:이|은|의)?\s*(?:영구\s*)?(?:삭제\s*처리(?:가)?\s*되었습니다|"
-    r"삭제되었습니다|삭제되었어요|안전하게\s*파기되었습니다))"
-)
 
 
 @dataclass(frozen=True)
@@ -44,6 +40,8 @@ def find_completion(
         if re.match(r"(?i)^(?:re|fw|fwd)\s*:|^전달\s*:", subject):
             continue
         body = re.split(r"(?im)^\s*(?:>|-+\s*Original|보낸\s*사람\s*:|From\s*:)", mail.body_text)[0]
+        if looks_like_phishing(subject, body):
+            continue
         match = _COMPLETED.search(body[:1600])
         if match:
             return CompletionEvidence(mail.id, domain, mail.date, match.group())

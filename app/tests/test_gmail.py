@@ -205,6 +205,7 @@ def test_모든_페이지의_메일을_받고_배치는_20통에서_시작해_�
     assert len(result.mails) == 120
     assert [len(b) for b in api.batches] == [20, 20, 20, 25, 25, 10]
     assert source.name == "Gmail (tester@gmail.com)"
+    assert source.private_values == ("tester@gmail.com", "tester")
 
 
 def test_한도에_걸리면_배치를_절반으로_줄인다():

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from account_cleaner import classifier, providers
-from account_cleaner.classifier.analyzer import LocalAccountAnalyzer, resolve_service
+from account_cleaner.classifier.analyzer import MEMBER_BASE, LocalAccountAnalyzer, resolve_service
 from account_cleaner.classifier.model import explicit_rule, model_text, stage_hint
 from account_cleaner.contracts import AnalysisCancelled, EvidenceType, ParsedMail
 
@@ -36,6 +36,7 @@ class StubPredictor:
                 "stage_hint": self.values[r["id"]][1],
                 "classification_score": 0.9,
                 "decision_source": "model",
+                "gate": (self.values[r["id"]] + (None,))[2],
             }
             for r in rows
         ]
@@ -63,7 +64,7 @@ def test_개인메일없이_계약에_맞는_후보와_진행률을_돌려준다
     assert result[0].confirmed_login_method is None
 
 
-def test_중복아이디를_제외하고_광고만있는_후보는_약한흔적으로_남긴다():
+def test_중복아이디를_제외하고_광고만_오는_서비스도_회원으로_본다():
     # given / when
     a = analyzer({"1": ("signup", "unknown"), "2": ("promo", "unknown")})
     result = a.analyze([mail(1), mail(1), mail(2, domain="ads.example")])
@@ -71,7 +72,55 @@ def test_중복아이디를_제외하고_광고만있는_후보는_약한흔적�
     assert len(result) == 2
     assert len(result[0].evidence) == 1
     assert result[1].domain == "ads.example"
-    assert result[1].score == 0
+    assert result[1].score == MEMBER_BASE
+
+
+def test_피싱으로_보이는_메일은_계정_후보의_근거로_쓰지_않는다():
+    # given / when
+    a = analyzer({"1": ("security", "phishing_suspected"), "2": ("signup", "unknown")})
+    result = a.analyze([mail(1, domain="phish.example"), mail(2)])
+    # then
+    assert [c.domain for c in result] == ["sample.example"]
+
+
+def test_관련성판정이_의심_업무메일은_후보에서_빼고_광고는_광고_근거로_바꾼다():
+    # given
+    a = analyzer(
+        {
+            "1": ("security", "unknown", "suspicious"),
+            "2": ("activity", "unknown", "unrelated"),
+            "3": ("activity", "unknown", "promo"),
+            "4": ("signup", "unknown", "usage"),
+        }
+    )
+    messages = [
+        mail(1, domain="phish.example"),
+        mail(2, domain="work.example"),
+        mail(3, domain="ads.example"),
+        mail(4),
+    ]
+    # when
+    result = a.analyze(messages)
+    # then
+    assert [c.domain for c in result] == ["sample.example", "ads.example"]
+    assert result[1].evidence[0].type is EvidenceType.PROMO
+    assert result[1].score == MEMBER_BASE
+
+
+def test_관련성판정_가중치는_임계값_미만이면_판정하지_않는다():
+    # given
+    np = pytest.importorskip("numpy")
+    from account_cleaner.classifier.model import GateHead
+
+    coef = np.zeros((2, 384))
+    coef[0, 0] = 5.0
+    head = GateHead(
+        {"classes": ["suspicious", "usage"], "coef": coef, "intercept": [0, 0], "threshold": 0.6}
+    )
+    x = np.zeros((2, 384))
+    x[0, 0] = 1.0
+    # when / then
+    assert head.predict(x) == ["suspicious", None]
 
 
 def test_공유발신자에서_서비스별로_구분하고_주소를_추측하지않는다():
@@ -96,6 +145,57 @@ def test_모델의_삭제추정은_명시적인_탈퇴완료로_확정하지않�
     )[0]
     assert result.score > 0.1
     assert result.evidence[-1].probability < 1
+
+
+def test_서로_다른_종류의_근거는_점수를_올리고_같은_종류의_반복은_올리지_않는다():
+    # given / when
+    one = analyzer({"1": ("security", "unknown")}).analyze([mail(1)])[0]
+    repeated = analyzer({"1": ("security", "unknown"), "2": ("security", "unknown")}).analyze(
+        [mail(1), mail(2)]
+    )[0]
+    mixed = analyzer({"1": ("security", "unknown"), "2": ("terms", "unknown")}).analyze(
+        [mail(1), mail(2)]
+    )[0]
+    # then
+    assert repeated.score == one.score
+    assert one.score < mixed.score < 1
+
+
+def test_개인_메일_주소에서_온_메일은_그_메일_서비스의_계정_후보로_묶지_않는다():
+    # given / when
+    result = analyzer({"1": ("activity", "unknown"), "2": ("signup", "unknown")}).analyze(
+        [mail(1, domain="gmail.com"), mail(2)]
+    )
+    # then
+    assert [c.domain for c in result] == ["sample.example"]
+    assert resolve_service(mail(1, domain="navercorp.com")) == ("네이버", "naver.com")
+
+
+def test_대표_서비스의_여러_발신_하위도메인은_한_후보로_묶는다():
+    # given
+    a = analyzer(
+        {"1": ("signup", "unknown"), "2": ("security", "unknown"), "3": ("promo", "unknown")}
+    )
+    messages = [
+        mail(1, domain="txn.dropbox.com"),
+        mail(2, domain="dropbox.com"),
+        mail(3, domain="em-s.dropbox.com"),
+    ]
+    # when
+    result = a.analyze(messages)
+    # then
+    assert [(c.service, c.domain, len(c.evidence)) for c in result] == [
+        ("Dropbox", "dropbox.com", 3)
+    ]
+    assert resolve_service(mail(4, domain="e.linkedin.com")) == ("LinkedIn", "linkedin.com")
+    assert resolve_service(mail(5, domain="notdropbox.com")) == ("notdropbox.com", "notdropbox.com")
+
+
+def test_모르는_서비스도_하위도메인은_같은_후보로_묶는다():
+    assert resolve_service(mail(1, domain="info.mexc.com"))[1] == "mexc.com"
+    assert resolve_service(mail(2, domain="mkt.mexc.com"))[1] == "mexc.com"
+    assert resolve_service(mail(3, domain="mail.sample.co.kr"))[1] == "sample.co.kr"
+    assert resolve_service(mail(4, domain="mail.notion.so")) == ("Notion", "notion.so")
 
 
 def test_빈입력과_취소를_지원한다():
@@ -165,11 +265,23 @@ def test_명시한_모델경로가_틀리면_Fake로_숨기지않는다(monkeypa
         providers.get_analyzer()
 
 
-def test_미설정이면_ml패키지없이_Fake를_사용한다(monkeypatch):
+def test_미설정이면_ml패키지없이_Fake를_사용한다(monkeypatch, tmp_path):
     # given
     from account_cleaner.fakes import FakeAnalyzer
 
     monkeypatch.delenv("ACCOUNT_CLEANER_MODEL_DIR", raising=False)
     monkeypatch.delenv("ACCOUNT_CLEANER_FAKE", raising=False)
+    monkeypatch.setattr(classifier, "BUNDLED_MODEL_DIR", tmp_path)
     # when / then
     assert isinstance(providers.get_analyzer(), FakeAnalyzer)
+
+
+def test_경로를_지정하지_않아도_앱에_묶인_모델이_있으면_그_모델을_쓴다(monkeypatch, tmp_path):
+    # given
+    monkeypatch.delenv("ACCOUNT_CLEANER_MODEL_DIR", raising=False)
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(classifier, "BUNDLED_MODEL_DIR", tmp_path)
+    # when / then
+    assert classifier.is_configured()
+    with pytest.raises(FileNotFoundError, match="weights.json"):
+        classifier.create_analyzer()

@@ -51,9 +51,16 @@ def _mode(component: str) -> str:
     return "fake" if component in names else "real"
 
 
-def _real(component: str) -> Any | None:
+def _real(component: str, mode: str = "auto") -> Any | None:
     module_name, attr = _REAL[component]
-    module = importlib.import_module(module_name)
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        # auto 모드는 모듈이 없으면 가짜로 대신한다 (빌드에 빠졌을 때 앱이 멈추지 않게, #76)
+        if mode == "real":
+            raise
+        log.warning("%s: %s 모듈을 불러오지 못했습니다", component, module_name, exc_info=True)
+        return None
     if component == "analyzer" and hasattr(module, "is_configured") and not module.is_configured():
         return None
     return getattr(module, attr, None)
@@ -64,7 +71,7 @@ def _resolve(component: str) -> Any | None:
     mode = _mode(component)
     if mode == "fake":
         return None
-    real = _real(component)
+    real = _real(component, mode)
     if real is None:
         if mode == "real":
             module_name, attr = _REAL[component]

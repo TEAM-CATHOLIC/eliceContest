@@ -8,7 +8,8 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox, QStyle, QSystemTrayIcon, QWidget
 
 from account_cleaner import providers
-from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus
+from account_cleaner.browser.agent.llm import api_key_source
+from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus, ParsedMail
 from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
@@ -23,6 +24,7 @@ from account_cleaner.storage.crypto import (
     load_or_create_key,
 )
 from account_cleaner.ui.agent_page import AgentPage
+from account_cleaner.ui.api_key_dialog import ApiKeyDialog, ai_status_text
 from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
@@ -101,12 +103,20 @@ def show_import_result(
     outcome: ImportOutcome,
     store: StatusStore | None = None,
     inventory_store: InventoryStore | None = None,
+    agent_page: AgentPage | None = None,
 ) -> None:
     """메일 가져오기·분석이 끝나면 후보를 인벤토리에 채우고 그 화면으로 이동한다.
     후보와 근거 메일(암호화, 앞부분만)을 저장해 다음 실행 때 다시 보여 준다."""
     inventory.set_candidates(outcome.candidates, saved_statuses(store))
     inventory.detail.set_mail_lookup(outcome.mail_lookup())
+    update_completion_evidence(inventory, outcome.mails, store)
+    if agent_page is not None:
+        agent_page.set_private_values(outcome.private_values)
     window.show_page(PageId.INVENTORY)
+    if inventory.detail.completion_results:
+        window.statusBar().showMessage(
+            "탈퇴 완료 표현이 있는 새 메일을 발견했습니다. 후보 상세에서 근거를 확인하세요.", 20_000
+        )
     if inventory_store is not None:
         by_id = {m.id: m for m in outcome.mails}
         count = inventory_store.save(outcome.source_name, outcome.candidates, by_id)
@@ -123,7 +133,29 @@ def restore_inventory(
         return False
     inventory.set_candidates(saved.candidates, saved_statuses(store))
     inventory.detail.set_mail_lookup(saved.mail_lookup())
+    update_completion_evidence(inventory, list(saved.mails.values()), store)
     return True
+
+
+def update_completion_evidence(
+    inventory: InventoryPage, mails: list[ParsedMail], store: StatusStore | None
+) -> None:
+    """이번 안내 후의 메일 근거만 표시한다. 완료 상태·재알림·세션은 바꾸지 않는다."""
+    from account_cleaner.classifier.completion import find_completion
+
+    inventory.known_mail_ids = {m.id for m in mails}
+    results = {}
+    by_id = {m.id: m for m in mails}
+    if store is not None:
+        for progress in store.all_progress():
+            watch = store.completion_watch(progress.domain)
+            if watch is None:
+                continue
+            started_at, known_ids = watch
+            evidence = find_completion(mails, progress.domain, started_at, known_ids)
+            if evidence is not None:
+                results[progress.domain] = (by_id[evidence.mail_id], evidence.statement)
+    inventory.detail.set_completion_results(results)
 
 
 def open_inventory_store(db: Database, key_file: Path) -> tuple[InventoryStore, LoadedKey | None]:
@@ -156,6 +188,22 @@ def record_status(
         store.mark_completed(domain)
         if cleaner is not None:
             cleaner.clear_due()
+
+
+AI_STATUS = "AI 안내"
+
+
+def open_api_key_dialog(window: MainWindow, inventory: InventoryPage) -> ApiKeyDialog:
+    """사이드바 `AI 키 설정`. 키를 바꾸면 상태 줄과 상세 패널 버튼을 다시 계산한다 (#81)."""
+    dialog = ApiKeyDialog(window)
+
+    def changed() -> None:
+        window.sidebar_footer.set_status(AI_STATUS, ai_status_text(api_key_source()))
+        inventory.refresh_detail()
+
+    dialog.key_changed.connect(changed)
+    dialog.open()
+    return dialog
 
 
 def confirm_clear_logins(
@@ -279,7 +327,8 @@ def start_agent_for(
         agent_page.current_domain = candidate.domain  # 결과를 이 후보에 기록
         inventory.set_status(candidate.domain, CandidateStatus.IN_PROGRESS)
         if store is not None:
-            store.agent_started(candidate.domain, candidate.service)
+            store.agent_started(candidate.domain, candidate.service, inventory.known_mail_ids)
+            inventory.detail.clear_completion_result(candidate.domain)
 
 
 def record_agent_result(agent_page: AgentPage, store: StatusStore, event: AgentEvent) -> None:
@@ -319,6 +368,9 @@ def main() -> int:
     window.sidebar_footer.set_status(ENCRYPTION_STATUS, encryption_status(key))
     agent_page = AgentPage(paths.browser_profile)
     agent_page.run_finished.connect(lambda event: record_agent_result(agent_page, store, event))
+    agent_page.running_changed.connect(
+        lambda running: window.set_nav_badge(PageId.AGENT, "진행" if running else None)
+    )
     cleaner = SessionCleaner(
         store,
         paths.browser_profile,
@@ -330,6 +382,8 @@ def main() -> int:
     agent_page.run_finished.connect(lambda _event: cleaner.retry_pending())
     cleaner.cleared.connect(lambda domains: show_cleanup_result(window, domains))
     cleaner.failed.connect(lambda text: window.statusBar().showMessage(text, 15_000))
+    window.sidebar_footer.set_status(AI_STATUS, ai_status_text(api_key_source()))
+    window.sidebar_footer.api_key_requested.connect(lambda: open_api_key_dialog(window, inventory))
     window.sidebar_footer.clear_logins_requested.connect(
         lambda: confirm_clear_logins(window, cleaner)
     )
@@ -342,7 +396,9 @@ def main() -> int:
     )
     sources = SourcesPage(paths.root)
     sources.import_finished.connect(
-        lambda outcome: show_import_result(window, inventory, outcome, store, inventory_store)
+        lambda outcome: show_import_result(
+            window, inventory, outcome, store, inventory_store, agent_page
+        )
     )
     saved = inventory_store.load()
     restore_inventory(inventory, saved, store)

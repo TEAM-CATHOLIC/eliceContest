@@ -53,6 +53,29 @@ def check_gmail() -> Check:
     return Check("gmail", certs.is_file(), f"discovery gmail.v1, certs={certs.name}")
 
 
+def check_providers() -> Check:
+    """providers가 문자열 이름으로 불러오는 실제 구현 모듈이 빌드에 들어 있는지 (#76)."""
+    import importlib
+
+    from account_cleaner.providers import _REAL
+
+    modules = sorted({module for module, _attr in _REAL.values()})
+    for module in modules:
+        importlib.import_module(module)
+    return Check("providers", True, ", ".join(modules))
+
+
+def check_llm() -> Check:
+    """범용 안내(#73)에 쓰는 Anthropic SDK와 pydantic이 빌드에 들어 있는지. 네트워크는 쓰지 않는다."""
+    import anthropic
+    import pydantic
+
+    from account_cleaner.browser.agent.llm import AnthropicNextClickSelector
+
+    AnthropicNextClickSelector("self-test")._get_client()
+    return Check("llm", True, f"anthropic {anthropic.__version__}, pydantic {pydantic.VERSION}")
+
+
 def check_keychain() -> Check:
     """근거 메일 암호화 키를 둘 OS 키체인 백엔드가 묶였는지 (키를 쓰거나 읽지는 않는다).
 
@@ -104,6 +127,8 @@ def run_self_test(require_chrome: bool = False) -> list[Check]:
         ("qt", check_qt),
         ("resources", check_resources),
         ("gmail", check_gmail),
+        ("providers", check_providers),
+        ("llm", check_llm),
         ("keychain", check_keychain),
     ):
         try:

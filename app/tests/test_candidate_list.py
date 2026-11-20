@@ -62,8 +62,18 @@ def test_목록_한_줄에_서비스_도메인_신뢰도_근거_마지막_메일
 
     # then
     assert "샘플쇼핑" in text and "shop.example.com" in text
-    assert "신뢰도 90%" in text and "가입·인증 2" in text
+    assert "계정 있음" in text and "가입·인증 2" in text
+    assert "%" not in text
     assert "마지막 메일 2024-01-11" in text and "미확인" in text
+
+
+def test_근거가_약한_후보는_아님이_아니라_확인_안_됨으로_보인다():
+    # given
+    model = CandidateListModel()
+    model.set_candidates([MUSIC])
+
+    # when / then
+    assert "확인 안 됨" in model.index(0).data()
 
 
 def test_저장된_상태가_있으면_그_상태로_보이고_없으면_미확인이다():

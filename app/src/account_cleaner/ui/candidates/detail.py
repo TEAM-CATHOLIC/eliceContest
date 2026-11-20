@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from account_cleaner.classifier.reasons import key_sentence
 from account_cleaner.contracts import (
     AccountCandidate,
     EvidenceType,
@@ -30,7 +31,7 @@ from account_cleaner.contracts import (
 )
 from account_cleaner.ui.candidates.delegate import STATUS_TONES, avatar_tint, display_name
 from account_cleaner.ui.candidates.guide import UrlOpener, WithdrawGuideDialog, default_open_url
-from account_cleaner.ui.candidates.model import CandidateStatus, evidence_label
+from account_cleaner.ui.candidates.model import CandidateStatus, evidence_label, verdict_label
 from account_cleaner.ui.theme import Icon, pixmap, set_role, tokens
 
 MailLookup = Callable[[str], ParsedMail | None]
@@ -53,28 +54,22 @@ REVIEW_BUTTONS = (
 
 
 def explain_score(candidate: AccountCandidate) -> str:
-    """신뢰도를 만든 근거를 문장으로 (NF-03: 숫자만 보여 주지 않는다)."""
+    """판정을 만든 근거를 문장으로 (NF-03)."""
     counts = Counter(e.type for e in candidate.evidence)
     labels = Counter(evidence_label(e) for e in candidate.evidence)
-    strongest: dict[str, float] = {}
-    for e in candidate.evidence:
-        label = evidence_label(e)
-        strongest[label] = max(strongest.get(label, 0.0), e.probability)
-    parts = [
-        f"{label} 메일 {n}통(최고 {round(strongest[label] * 100)}%)"
-        for label, n in labels.most_common()
-    ]
-    text = (
-        f"신뢰도 {round(candidate.score * 100)}% — " + ", ".join(parts) + "을 근거로 판단했습니다."
-    )
-    text += " 이 점수는 후보 정렬용이며 검증된 계정 존재 확률이 아닙니다."
+    parts = [f"{label} 메일 {n}통" for label, n in labels.most_common()]
+    text = f"{verdict_label(candidate)} — " + ", ".join(parts) + "을 근거로 판단했습니다."
+    text += " 메일 근거로 본 판단이며 현재 계정 상태를 확인한 것은 아닙니다."
     deleted = [e for e in candidate.evidence if e.type is EvidenceType.DELETED]
     if any(e.probability == 1.0 for e in deleted):
         text += " 과거 탈퇴 완료 근거가 있습니다. 이후 재가입과 현재 상태는 확인이 필요합니다."
     elif deleted:
         text += " 삭제 유형은 모델의 추정입니다. 탈퇴 완료로 확인되지 않았으니 본문을 검토하세요."
-    if set(counts) == {EvidenceType.PROMO}:
-        text += " 광고·초대만 발견한 약한 흔적이며 가입 여부는 확인되지 않았습니다."
+    if set(counts) <= {EvidenceType.PROMO, EvidenceType.TERMS}:
+        text += (
+            " 광고·안내 메일은 보통 회원에게만 보내므로 계정이 있을 가능성이 높습니다."
+            " 다만 가입 완료나 로그인 메일은 찾지 못했습니다."
+        )
     if candidate.domain.endswith(".invalid"):
         text += " 서비스 이름만 발견했으며 실제 사이트 주소는 확인되지 않았습니다."
     return text
@@ -99,11 +94,47 @@ class CandidateDetailPanel(QWidget):
         self._mail_lookup = mail_lookup or (lambda _id: None)
         self._playbook_lookup = playbook_lookup or (lambda _domain: None)
         self._candidate: AccountCandidate | None = None
+        self.completion_results: dict[str, tuple[ParsedMail, str]] = {}
+        self._status = CandidateStatus.UNREVIEWED
         self._build()
         self.show_candidate(None)
 
     def set_mail_lookup(self, lookup: MailLookup) -> None:
         self._mail_lookup = lookup
+
+    def set_completion_results(self, results: dict[str, tuple[ParsedMail, str]]) -> None:
+        self.completion_results = results
+        self._refresh_completion()
+
+    def clear_completion_result(self, domain: str) -> None:
+        self.completion_results.pop(domain, None)
+        self._refresh_completion()
+
+    def _refresh_completion(self) -> None:
+        domain = self._candidate.domain if self._candidate else ""
+        result = self.completion_results.get(domain)
+        manual = (
+            "사용자 완료 확인" if self._status is CandidateStatus.DONE else "사용자 완료 미확인"
+        )
+        mail_text = "완료 표현 메일 발견" if result else "완료 메일 미확인"
+        text = f"{manual} · {mail_text}"
+        if result:
+            mail, statement = result
+            text += f"\n{mail.date:%Y.%m.%d} · {statement}"
+            text += "\n메일 표현을 확인한 결과이며 실제 계정 삭제를 보증하지 않습니다."
+        else:
+            text += "\n메일이 없다고 탈퇴 실패를 뜻하지 않습니다. 안내 후 메일을 다시 가져와 확인하세요."
+        self.completion_label.setText(text)
+        self.completion_button.setVisible(result is not None)
+
+    def _show_completion_mail(self) -> None:
+        result = self.completion_results.get(self._candidate.domain) if self._candidate else None
+        if result is not None:
+            mail, _statement = result
+            self.preview.setPlainText(
+                f"보낸 사람: {mail.sender}\n제목: {mail.subject}\n\n{mail.body_text[:PREVIEW_CHARS]}"
+            )
+            self.preview.show()
 
     def set_playbook_lookup(self, lookup: PlaybookLookup) -> None:
         self._playbook_lookup = lookup
@@ -150,6 +181,13 @@ class CandidateDetailPanel(QWidget):
         why_layout.setSpacing(tokens.SPACE_2)
         why_layout.addWidget(set_role(QLabel("왜 계정이라고 봤나요?"), "role", "label"))
         why_layout.addWidget(self.score_label)
+        self.completion_label = QLabel()
+        self.completion_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.completion_label.setWordWrap(True)
+        why_layout.addWidget(self.completion_label)
+        self.completion_button = QPushButton("완료 근거 메일 보기")
+        self.completion_button.clicked.connect(self._show_completion_mail)
+        why_layout.addWidget(self.completion_button)
 
         self.evidence_title = set_role(QLabel("근거 메일"), "role", "label")
         self.evidence_list = QListWidget()
@@ -281,16 +319,23 @@ class CandidateDetailPanel(QWidget):
         self.evidence_title.setText(f"근거 메일 {len(candidate.evidence)}통")
         self._playbook = self._playbook_lookup(candidate.domain)
         self.guide_button.setEnabled(self._playbook is not None)
+        self.guide_button.setText(
+            "AI 안내 (실험)"
+            if self._playbook and self._playbook.id.startswith("generic:")
+            else "탈퇴 준비하기"
+        )
         self.agent_hint.setVisible(self._playbook is None)
         self.agent_hint.setText(
             ""
             if self._playbook
-            else "이 서비스는 아직 안내 정보(플레이북)가 없어 로그인·탈퇴 안내와 "
-            "에이전트 진행을 할 수 없습니다. 서비스 사이트의 고객센터에서 탈퇴 방법을 확인하세요."
+            else "이 서비스는 아직 안내 정보(플레이북)가 없어 기존 안내를 쓸 수 없거나, "
+            "범용 AI용 Anthropic API 키가 설정되지 않아 에이전트 진행을 할 수 없습니다."
         )
 
     def set_status(self, status: CandidateStatus) -> None:
         status = CandidateStatus(status)
+        self._status = status
+        self._refresh_completion()
         background, foreground = STATUS_TONES[status]
         self.status_label.setText(status.label)
         self.status_label.setStyleSheet(
@@ -309,11 +354,14 @@ class CandidateDetailPanel(QWidget):
         for evidence in sorted(candidate.evidence, key=lambda e: -e.probability):
             mail = self._mail_lookup(evidence.mail_id)
             label = evidence_label(evidence)
-            head = f"[{label}] {round(evidence.probability * 100)}%"
+            head = f"[{label}]"
             if mail is None:
                 text = f"{head} · 메일 {evidence.mail_id}"
             else:
-                text = f"{mail.date:%Y.%m.%d}  {mail.subject}\n{head}"
+                quote = key_sentence(mail.body_text, evidence.type)
+                text = f"{mail.date:%Y.%m.%d}  {mail.subject}\n{head}" + (
+                    f" “{quote}”" if quote else ""
+                )
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, mail)
             self.evidence_list.addItem(item)

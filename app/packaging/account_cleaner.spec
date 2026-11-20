@@ -23,7 +23,8 @@ a = Analysis(
     ["launcher.py"],
     pathex=[],
     datas=datas,
-    hiddenimports=[],
+    # providers가 문자열 이름(importlib)으로 불러오는 실제 구현. PyInstaller가 못 찾으므로 직접 넣는다 (#76)
+    hiddenimports=["account_cleaner.classifier", "account_cleaner.browser"],
     excludes=["tkinter", "pytest"],
     noarchive=False,
 )
