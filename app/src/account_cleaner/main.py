@@ -8,7 +8,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox, QStyle, QSystemTrayIcon, QWidget
 
 from account_cleaner import providers
-from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus
+from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus, ParsedMail
 from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
 from account_cleaner.core.paths import resolve_app_paths
@@ -106,7 +106,12 @@ def show_import_result(
     후보와 근거 메일(암호화, 앞부분만)을 저장해 다음 실행 때 다시 보여 준다."""
     inventory.set_candidates(outcome.candidates, saved_statuses(store))
     inventory.detail.set_mail_lookup(outcome.mail_lookup())
+    update_completion_evidence(inventory, outcome.mails, store)
     window.show_page(PageId.INVENTORY)
+    if inventory.detail.completion_results:
+        window.statusBar().showMessage(
+            "탈퇴 완료 표현이 있는 새 메일을 발견했습니다. 후보 상세에서 근거를 확인하세요.", 20_000
+        )
     if inventory_store is not None:
         by_id = {m.id: m for m in outcome.mails}
         count = inventory_store.save(outcome.source_name, outcome.candidates, by_id)
@@ -123,7 +128,29 @@ def restore_inventory(
         return False
     inventory.set_candidates(saved.candidates, saved_statuses(store))
     inventory.detail.set_mail_lookup(saved.mail_lookup())
+    update_completion_evidence(inventory, list(saved.mails.values()), store)
     return True
+
+
+def update_completion_evidence(
+    inventory: InventoryPage, mails: list[ParsedMail], store: StatusStore | None
+) -> None:
+    """이번 안내 후의 메일 근거만 표시한다. 완료 상태·재알림·세션은 바꾸지 않는다."""
+    from account_cleaner.classifier.completion import find_completion
+
+    inventory.known_mail_ids = {m.id for m in mails}
+    results = {}
+    by_id = {m.id: m for m in mails}
+    if store is not None:
+        for progress in store.all_progress():
+            watch = store.completion_watch(progress.domain)
+            if watch is None:
+                continue
+            started_at, known_ids = watch
+            evidence = find_completion(mails, progress.domain, started_at, known_ids)
+            if evidence is not None:
+                results[progress.domain] = (by_id[evidence.mail_id], evidence.statement)
+    inventory.detail.set_completion_results(results)
 
 
 def open_inventory_store(db: Database, key_file: Path) -> tuple[InventoryStore, LoadedKey | None]:
@@ -279,7 +306,8 @@ def start_agent_for(
         agent_page.current_domain = candidate.domain  # 결과를 이 후보에 기록
         inventory.set_status(candidate.domain, CandidateStatus.IN_PROGRESS)
         if store is not None:
-            store.agent_started(candidate.domain, candidate.service)
+            store.agent_started(candidate.domain, candidate.service, inventory.known_mail_ids)
+            inventory.detail.clear_completion_result(candidate.domain)
 
 
 def record_agent_result(agent_page: AgentPage, store: StatusStore, event: AgentEvent) -> None:

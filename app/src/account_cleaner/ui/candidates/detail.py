@@ -94,11 +94,47 @@ class CandidateDetailPanel(QWidget):
         self._mail_lookup = mail_lookup or (lambda _id: None)
         self._playbook_lookup = playbook_lookup or (lambda _domain: None)
         self._candidate: AccountCandidate | None = None
+        self.completion_results: dict[str, tuple[ParsedMail, str]] = {}
+        self._status = CandidateStatus.UNREVIEWED
         self._build()
         self.show_candidate(None)
 
     def set_mail_lookup(self, lookup: MailLookup) -> None:
         self._mail_lookup = lookup
+
+    def set_completion_results(self, results: dict[str, tuple[ParsedMail, str]]) -> None:
+        self.completion_results = results
+        self._refresh_completion()
+
+    def clear_completion_result(self, domain: str) -> None:
+        self.completion_results.pop(domain, None)
+        self._refresh_completion()
+
+    def _refresh_completion(self) -> None:
+        domain = self._candidate.domain if self._candidate else ""
+        result = self.completion_results.get(domain)
+        manual = (
+            "사용자 완료 확인" if self._status is CandidateStatus.DONE else "사용자 완료 미확인"
+        )
+        mail_text = "완료 표현 메일 발견" if result else "완료 메일 미확인"
+        text = f"{manual} · {mail_text}"
+        if result:
+            mail, statement = result
+            text += f"\n{mail.date:%Y.%m.%d} · {statement}"
+            text += "\n메일 표현을 확인한 결과이며 실제 계정 삭제를 보증하지 않습니다."
+        else:
+            text += "\n메일이 없다고 탈퇴 실패를 뜻하지 않습니다. 안내 후 메일을 다시 가져와 확인하세요."
+        self.completion_label.setText(text)
+        self.completion_button.setVisible(result is not None)
+
+    def _show_completion_mail(self) -> None:
+        result = self.completion_results.get(self._candidate.domain) if self._candidate else None
+        if result is not None:
+            mail, _statement = result
+            self.preview.setPlainText(
+                f"보낸 사람: {mail.sender}\n제목: {mail.subject}\n\n{mail.body_text[:PREVIEW_CHARS]}"
+            )
+            self.preview.show()
 
     def set_playbook_lookup(self, lookup: PlaybookLookup) -> None:
         self._playbook_lookup = lookup
@@ -145,6 +181,13 @@ class CandidateDetailPanel(QWidget):
         why_layout.setSpacing(tokens.SPACE_2)
         why_layout.addWidget(set_role(QLabel("왜 계정이라고 봤나요?"), "role", "label"))
         why_layout.addWidget(self.score_label)
+        self.completion_label = QLabel()
+        self.completion_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.completion_label.setWordWrap(True)
+        why_layout.addWidget(self.completion_label)
+        self.completion_button = QPushButton("완료 근거 메일 보기")
+        self.completion_button.clicked.connect(self._show_completion_mail)
+        why_layout.addWidget(self.completion_button)
 
         self.evidence_title = set_role(QLabel("근거 메일"), "role", "label")
         self.evidence_list = QListWidget()
@@ -286,6 +329,8 @@ class CandidateDetailPanel(QWidget):
 
     def set_status(self, status: CandidateStatus) -> None:
         status = CandidateStatus(status)
+        self._status = status
+        self._refresh_completion()
         background, foreground = STATUS_TONES[status]
         self.status_label.setText(status.label)
         self.status_label.setStyleSheet(
