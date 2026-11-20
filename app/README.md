@@ -61,6 +61,15 @@ uv sync --group ml
 
 > ⚠️ 이후 그냥 `uv sync`를 실행하면 ml 라이브러리가 다시 지워진다. AI 작업자는 계속 `uv sync --group ml`을 쓴다.
 
+실제 AI로 분석하려면 모델도 받아야 한다. 모델은 용량이 커서 저장소 대신 GitHub Release에 있다. `app` 폴더에서:
+
+```bash
+gh release download model-e5ft-20261120 --repo TEAM-CATHOLIC/eliceContest --pattern classifier-model-e5ft.zip
+powershell -Command "Expand-Archive classifier-model-e5ft.zip -DestinationPath src\account_cleaner\classifier\bundled"
+```
+
+`src/account_cleaner/classifier/bundled/`에 풀어 두면 `uv run account-cleaner`와 직접 빌드한 실행파일이 이 모델을 쓴다 (git에서 제외되는 폴더). 자세한 내용은 [CLASSIFIER.md](CLASSIFIER.md), 모델 성능은 [모델 카드](../docs/05_모델카드_학습근거.md).
+
 ### 1-4. 잘 됐는지 확인
 
 ```bash

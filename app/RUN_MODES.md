@@ -18,7 +18,7 @@
 | MBOX·EML·ZIP 파일 가져오기 | ✅ | ✅ | |
 | **Gmail 계정 연결** | ⚠️ 설정 파일을 직접 둬야 함 | ✅ 바로 됨 | [2-1](#2-1-gmail-계정-연결) |
 | 네이버 메일 | ❌ 준비 중 | ❌ 준비 중 | #21 보류 |
-| **계정 후보 분석 (실제 AI 분류기)** | ⚠️ ml 그룹 + 모델 폴더 필요 | ❌ 키워드 가짜 분석기만 | [2-2](#2-2-계정-후보-분석) |
+| **계정 후보 분석 (실제 AI 분류기)** | ⚠️ ml 그룹 + 모델 필요 | ⚠️ 모델을 넣고 직접 빌드할 때만 (CI 빌드는 키워드 가짜 분석기) | [2-2](#2-2-계정-후보-분석) |
 | 계정 인벤토리, 상세, 근거 메일 미리보기 | ✅ | ✅ | |
 | 로그인·탈퇴 전 조건 안내 | ✅ | ✅ | |
 | AI 에이전트 안내 (실제 Chrome) | ✅ Chrome 필요 | ✅ Chrome 필요 | GitHub·Dropbox·LinkedIn 플레이북 |
@@ -62,19 +62,24 @@
 
 | | 쓰는 분석기 | 결과 |
 |---|---|---|
-| 빌드 결과물 | 키워드 가짜 분석기 (`FakeAnalyzer`) | 제목에 "가입·비밀번호·주문·약관·탈퇴 완료" 같은 낱말이 있는지로만 판단한다. **시연 화면 흐름 확인용**이고 정확도는 의미 없다 |
+| CI 빌드 결과물 (Actions) | 키워드 가짜 분석기 (`FakeAnalyzer`) | 제목에 "가입·비밀번호·주문·약관·탈퇴 완료" 같은 낱말이 있는지로만 판단한다. **시연 화면 흐름 확인용**이고 정확도는 의미 없다 |
 | `uv run` (기본) | 키워드 가짜 분석기 | 빌드와 같다 |
-| `uv run` + ml 그룹 | 실제 로컬 AI 분류기 (E5 임베딩 + 로지스틱 회귀) | 아래 준비가 필요하다 |
+| `uv run` + ml 그룹 + 모델 | 실제 로컬 AI 분류기 (파인튜닝한 E5 임베딩 + 로지스틱 회귀) | 아래 준비가 필요하다 |
+| 모델을 넣고 직접 빌드한 결과물 | 실제 로컬 AI 분류기 | 아래 "AI 포함 빌드" |
 
-실제 분류기를 쓰는 방법 (개발 실행만):
+실제 분류기를 쓰는 방법:
 
 ```bash
 uv sync --group ml                                   # torch 포함, 수 GB
-ACCOUNT_CLEANER_MODEL_DIR=<모델 폴더> uv run account-cleaner
+gh release download model-e5ft-20261120 --repo TEAM-CATHOLIC/eliceContest --pattern classifier-model-e5ft.zip
+powershell -Command "Expand-Archive classifier-model-e5ft.zip -DestinationPath src\account_cleaner\classifier\bundled"
+uv run account-cleaner
 ```
 
-- 모델 폴더에 `manifest.json`, `weights.json`이 있어야 한다. 가중치는 저장소에 없으므로 AI 담당에게 받는다 ([CLASSIFIER.md](CLASSIFIER.md)).
-- 빌드 결과물에서 `ACCOUNT_CLEANER_MODEL_DIR`을 지정하면 ML 라이브러리가 없어 **분석 단계에서 실패**한다. 실제 분류기를 빌드에 넣을지는 용량 문제로 아직 정하지 않았다.
+- 모델은 용량이 커서 저장소 대신 GitHub Release `model-e5ft-20261120`에 있다 ([CLASSIFIER.md](CLASSIFIER.md)).
+- `classifier/bundled/`에 모델이 있으면 환경 변수 없이 그 모델을 쓴다. 다른 모델 폴더를 쓰려면 `ACCOUNT_CLEANER_MODEL_DIR=<모델 폴더>`로 지정한다 (환경 변수가 우선).
+- **AI 포함 빌드:** ml 그룹을 설치하고 `bundled/`에 모델을 둔 상태에서 PyInstaller로 빌드하면 실행파일 안에 모델이 들어간다 (Windows 기준 약 1.4GB, zip 약 640MB). CI(Actions) 빌드에는 모델이 없어 키워드 가짜 분석기를 쓴다.
+- ml 라이브러리가 없는 빌드 결과물에서 `ACCOUNT_CLEANER_MODEL_DIR`을 지정하면 **분석 단계에서 실패**한다.
 
 ### 2-3. 근거 메일 암호화 키
 
