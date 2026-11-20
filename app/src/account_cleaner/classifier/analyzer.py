@@ -45,6 +45,9 @@ class LocalAccountAnalyzer(AccountAnalyzer):
         for mail, pred in zip(ordered, predictions):
             if should_cancel and should_cancel():
                 raise AnalysisCancelled()
+            # Phishing that imitates account notices is never account or deletion evidence.
+            if pred.get("stage_hint") == "phishing_suspected":
+                continue
             # Explicit rules win; the optional gate only filters model-decided mail.
             if pred["decision_source"] != "rule":
                 if pred.get("gate") in ("suspicious", "unrelated"):

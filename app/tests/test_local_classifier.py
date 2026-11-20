@@ -75,6 +75,14 @@ def test_중복아이디를_제외하고_광고만있는_후보는_약한흔적�
     assert result[1].score == 0
 
 
+def test_피싱으로_보이는_메일은_계정_후보의_근거로_쓰지_않는다():
+    # given / when
+    a = analyzer({"1": ("security", "phishing_suspected"), "2": ("signup", "unknown")})
+    result = a.analyze([mail(1, domain="phish.example"), mail(2)])
+    # then
+    assert [c.domain for c in result] == ["sample.example"]
+
+
 def test_관련성판정이_의심_업무메일은_후보에서_빼고_광고는_약한흔적으로_낮춘다():
     # given
     a = analyzer(

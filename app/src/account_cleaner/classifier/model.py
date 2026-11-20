@@ -7,6 +7,8 @@ import os
 import re
 from pathlib import Path
 
+from .phishing import looks_like_phishing
+
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
@@ -48,6 +50,8 @@ DELETED_COMPLETED = re.compile(
 def stage_hint(subject, body):
     """Supplementary deterministic hint, independent from six-way ML prediction."""
     text = subject + "\n" + body[:1600]
+    if looks_like_phishing(subject, body):
+        return "phishing_suspected"
     if re.search(r"계정.{0,25}(?:찾을 수 없|찾지 못|연결된 계정이 없)", text):
         return "account_not_found"
     if "이미 연결된 AWS 계정" in text or "이메일이 이미 AWS 계정" in text:
