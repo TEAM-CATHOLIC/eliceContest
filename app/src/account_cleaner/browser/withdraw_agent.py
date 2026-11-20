@@ -18,6 +18,7 @@ from typing import Any
 
 from account_cleaner.browser.agent import BrowserAgent
 from account_cleaner.browser.agent import Playbook as EnginePlaybook
+from account_cleaner.browser.agent.llm import NextClickSelector, create_next_click_selector
 from account_cleaner.browser.agent.models import AgentResult, Step
 from account_cleaner.browser.agent.models import AgentStatus as EngineStatus
 from account_cleaner.browser.chrome_process import ChromeStartError, attached_chrome
@@ -96,13 +97,19 @@ async def open_chrome_page(profile_dir: Path, headless: bool = False) -> AsyncIt
 
 
 class PlaywrightWithdrawAgent(WithdrawAgent):
-    def __init__(self, profile_dir: Path, page_opener: PageOpener | None = None) -> None:
+    def __init__(
+        self,
+        profile_dir: Path,
+        page_opener: PageOpener | None = None,
+        next_click_selector: NextClickSelector | None = None,
+    ) -> None:
         super().__init__(profile_dir)
         self._open_page = page_opener or open_chrome_page
         self._resume = threading.Event()
         self._stop = threading.Event()
         self._front = threading.Event()
         self._awaiting_user = False
+        self._next_click_selector = next_click_selector or create_next_click_selector()
 
     # --- UI 스레드에서 호출 ---
 
@@ -148,7 +155,9 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
             )
             return self._finish(on_event, AgentEvent(AgentStatus.FAILED, message))
         try:
-            return asyncio.run(self._run(to_engine_playbook(playbook), on_event))
+            return asyncio.run(
+                self._run(to_engine_playbook(playbook), on_event, playbook.private_values)
+            )
         except ChromeStartError as e:  # 사용자가 할 일이 담긴 안내 문구를 그대로 보여 준다 (#70)
             log.warning("에이전트용 Chrome 시작 실패: %s", e)
             return self._finish(on_event, AgentEvent(AgentStatus.FAILED, str(e)))
@@ -157,7 +166,12 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
             message = f"브라우저를 실행하지 못했습니다 ({type(e).__name__})."
             return self._finish(on_event, AgentEvent(AgentStatus.FAILED, message))
 
-    async def _run(self, playbook: EnginePlaybook, on_event: EventCallback) -> AgentEvent:
+    async def _run(
+        self,
+        playbook: EnginePlaybook,
+        on_event: EventCallback,
+        private_values: tuple[str, ...] = (),
+    ) -> AgentEvent:
         total = max(len(playbook.steps), 1)
 
         def step_info(index: int) -> AgentStep:
@@ -173,13 +187,18 @@ class PlaywrightWithdrawAgent(WithdrawAgent):
                 on_event(
                     AgentEvent(
                         AgentStatus.NAVIGATING,
-                        step_info(index).title,
+                        event.get("reason") or step_info(index).title,
                         url=url,
                         step=step_info(index),
                     )
                 )
 
-        agent = BrowserAgent(playbook, on_event=on_engine_event)
+        agent = BrowserAgent(
+            playbook,
+            on_event=on_engine_event,
+            next_click_selector=self._next_click_selector,
+            private_values=private_values,
+        )
         async with self._open_page(self.profile_dir) as page:
             start, navigate_entry = 0, True
             while True:

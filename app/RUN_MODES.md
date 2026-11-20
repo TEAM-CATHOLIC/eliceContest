@@ -112,7 +112,13 @@ ACCOUNT_CLEANER_MODEL_DIR=<모델 폴더> uv run account-cleaner
 | `ACCOUNT_CLEANER_FAKE=agent,playbooks` 등 | 일부를 가짜 구현으로 (`all` / `none` / 쉼표 목록) |
 | `ACCOUNT_CLEANER_KEY_STORE=file` | 키체인 대신 키 파일 |
 | `ACCOUNT_CLEANER_ALLOW_LOCAL_HTTP=0` | 로컬 http 플레이북 막기 (배포 환경용) |
+| `ANTHROPIC_API_KEY=<키>` | 플레이북 없는 사이트의 범용 AI 안내 활성화 |
+| `ACCOUNT_CLEANER_LLM_MODEL=claude-haiku-5-5` | 범용 안내 모델 변경 (기본값 `claude-haiku-5-5`) |
 | `--import-file <파일...>` | 켜자마자 그 파일 가져오기 |
 | `--self-test [--require-chrome]` | 묶인 구성요소 확인 |
 
 처음 상태로 되돌리기: 앱 데이터 폴더를 통째로 지운다. 키체인의 `account-cleaner` 항목은 남아 있어도 된다 (새 DB에 그대로 쓰인다).
+
+개발 중 PowerShell에서는 `$env:ANTHROPIC_API_KEY="..."` 뒤에 앱을 실행한다. 배포 환경에서는
+Windows 키체인의 서비스 `account-cleaner`, 사용자명 `anthropic-api-key`에 저장된 값도 읽는다.
+API 키가 없으면 기존 플레이북 안내는 그대로 쓸 수 있지만 `AI 안내 (실험)`은 비활성화된다.

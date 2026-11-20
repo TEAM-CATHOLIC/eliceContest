@@ -6,6 +6,15 @@
 """
 
 from .engine import BrowserAgent
+from .llm import ElementCandidate, NextClick, NextClickSelector
 from .models import AgentResult, AgentStatus, Playbook
 
-__all__ = ["AgentResult", "AgentStatus", "BrowserAgent", "Playbook"]
+__all__ = [
+    "AgentResult",
+    "AgentStatus",
+    "BrowserAgent",
+    "ElementCandidate",
+    "NextClick",
+    "NextClickSelector",
+    "Playbook",
+]

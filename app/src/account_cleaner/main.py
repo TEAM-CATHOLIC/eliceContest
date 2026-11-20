@@ -101,12 +101,15 @@ def show_import_result(
     outcome: ImportOutcome,
     store: StatusStore | None = None,
     inventory_store: InventoryStore | None = None,
+    agent_page: AgentPage | None = None,
 ) -> None:
     """메일 가져오기·분석이 끝나면 후보를 인벤토리에 채우고 그 화면으로 이동한다.
     후보와 근거 메일(암호화, 앞부분만)을 저장해 다음 실행 때 다시 보여 준다."""
     inventory.set_candidates(outcome.candidates, saved_statuses(store))
     inventory.detail.set_mail_lookup(outcome.mail_lookup())
     update_completion_evidence(inventory, outcome.mails, store)
+    if agent_page is not None:
+        agent_page.set_private_values(outcome.private_values)
     window.show_page(PageId.INVENTORY)
     if inventory.detail.completion_results:
         window.statusBar().showMessage(
@@ -370,7 +373,9 @@ def main() -> int:
     )
     sources = SourcesPage(paths.root)
     sources.import_finished.connect(
-        lambda outcome: show_import_result(window, inventory, outcome, store, inventory_store)
+        lambda outcome: show_import_result(
+            window, inventory, outcome, store, inventory_store, agent_page
+        )
     )
     saved = inventory_store.load()
     restore_inventory(inventory, saved, store)

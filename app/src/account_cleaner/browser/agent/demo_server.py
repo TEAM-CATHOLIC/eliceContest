@@ -28,6 +28,26 @@ class DemoHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
+        if self.path == "/generic":
+            self._send(
+                200,
+                page("""
+                <main><div class='tag'>GENERIC AGENT DEMO</div><h1>내 서비스</h1>
+                <p>홍길동 hong@example.com 계정으로 로그인했습니다.</p>
+                <a href='/generic/account'>홍길동 계정 설정</a></main>
+            """),
+            )
+            return
+        if self.path == "/generic/account":
+            self._send(
+                200,
+                page("""
+                <main><div class='tag'>GENERIC ACCOUNT SETTINGS</div><h1>계정 설정</h1>
+                <section class='danger'><h2>계정 삭제</h2>
+                <button>계정 영구 삭제</button></section></main>
+            """),
+            )
+            return
         if self.path == "/login":
             self._send(
                 200,

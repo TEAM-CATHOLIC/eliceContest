@@ -43,6 +43,8 @@ class ImportOutcome:
     mails: list[ParsedMail]
     candidates: list[AccountCandidate]
     stats: ImportStats
+    private_values: tuple[str, ...] = ()
+    """범용 LLM 호출 전 가릴 연결 계정 식별자. 메일 본문은 포함하지 않는다."""
 
     def mail_lookup(self) -> Callable[[str], ParsedMail | None]:
         by_id = {m.id: m for m in self.mails}
@@ -78,4 +80,4 @@ def run_pipeline(
         should_cancel=should_cancel,
     )
     on_stage(Stage.ANALYZE, len(mails), len(mails))
-    return ImportOutcome(source.name, mails, candidates, stats)
+    return ImportOutcome(source.name, mails, candidates, stats, source.private_values)

@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -332,6 +333,15 @@ class GmailMailSource(MailSource):
     @property
     def name(self) -> str:
         return f"Gmail ({self.account})" if self.account else "Gmail"
+
+    @property
+    def private_values(self) -> tuple[str, ...]:
+        """연결한 메일 주소와 화면에 이름처럼 노출될 수 있는 로컬 식별자를 가린다."""
+        if not self.account:
+            return ()
+        local = self.account.partition("@")[0]
+        parts = tuple(part for part in re.split(r"[._-]+", local) if len(part) >= 2)
+        return tuple(dict.fromkeys((self.account, local, *parts)))
 
     def _check_cancel(self) -> None:
         if self._should_cancel():

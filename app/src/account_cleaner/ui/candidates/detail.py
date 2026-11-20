@@ -319,12 +319,17 @@ class CandidateDetailPanel(QWidget):
         self.evidence_title.setText(f"근거 메일 {len(candidate.evidence)}통")
         self._playbook = self._playbook_lookup(candidate.domain)
         self.guide_button.setEnabled(self._playbook is not None)
+        self.guide_button.setText(
+            "AI 안내 (실험)"
+            if self._playbook and self._playbook.id.startswith("generic:")
+            else "탈퇴 준비하기"
+        )
         self.agent_hint.setVisible(self._playbook is None)
         self.agent_hint.setText(
             ""
             if self._playbook
-            else "이 서비스는 아직 안내 정보(플레이북)가 없어 로그인·탈퇴 안내와 "
-            "에이전트 진행을 할 수 없습니다. 서비스 사이트의 고객센터에서 탈퇴 방법을 확인하세요."
+            else "이 서비스는 아직 안내 정보(플레이북)가 없어 기존 안내를 쓸 수 없거나, "
+            "범용 AI용 Anthropic API 키가 설정되지 않아 에이전트 진행을 할 수 없습니다."
         )
 
     def set_status(self, status: CandidateStatus) -> None:

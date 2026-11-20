@@ -72,6 +72,8 @@ class Playbook:
     pre_withdraw_conditions: tuple[str, ...] = ()
     """탈퇴 전에 사용자가 확인해야 할 조건 (구독, 잔액, 데이터 삭제 등)."""
     steps: tuple[dict[str, Any], ...] = ()
+    private_values: tuple[str, ...] = ()
+    """실행 중 LLM payload에서만 가릴 사용자 식별자. JSON 플레이북에는 저장하지 않는다."""
 
     def allows(self, url: str) -> bool:
         """에이전트가 `url`로 이동해도 되는지."""

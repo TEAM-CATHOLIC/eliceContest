@@ -202,6 +202,40 @@ def test_에이전트_화면은_후보_도메인에_맞는_플레이북을_찾�
     BackgroundTask.shutdown_all()
 
 
+def test_api키가_있으면_플레이북없는_도메인에_범용_플레이북을_만든다(qtbot, tmp_path):
+    agent_page = AgentPage(
+        tmp_path / "profile",
+        agent_factory=lambda d: FakeWithdrawAgent(d, step_delay=0.01),
+        playbook_loader=lambda: load_playbooks(SAMPLE_PLAYBOOK_DIR),
+        include_demo=False,
+        generic_available=lambda: True,
+    )
+    qtbot.addWidget(agent_page)
+
+    playbook = agent_page.playbook_for_domain("unknown.example.io")
+
+    assert playbook is not None
+    assert playbook.id == "generic:unknown.example.io"
+    assert playbook.steps == ()
+    assert agent_page.service_combo.findData(playbook.id) >= 0
+
+
+def test_메일계정_식별자가_범용_플레이북의_마스킹값으로_연결된다(qtbot, tmp_path):
+    agent_page = AgentPage(
+        tmp_path / "profile",
+        playbook_loader=dict,
+        include_demo=False,
+        generic_available=lambda: True,
+    )
+    qtbot.addWidget(agent_page)
+    agent_page.set_private_values(("hong@example.com", "홍길동"))
+
+    playbook = agent_page.playbook_for_domain("unknown.example.io")
+
+    assert playbook is not None
+    assert playbook.private_values == ("hong@example.com", "홍길동")
+
+
 # --- 로그인·복구·탈퇴 전 조건 안내 (#14) ---
 
 

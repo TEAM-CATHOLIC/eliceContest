@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from .generic import GenericNavigator
 from .handoff import detect_handoff
+from .llm import NextClickSelector
 from .models import Action, AgentResult, AgentStatus, Playbook, Step
 from .policy import PolicyViolation, SafetyPolicy
 from .redaction import redact_sensitive
+
+log = logging.getLogger(__name__)
 
 IS_LINK_SCRIPT = "e => e.tagName === 'A' || e.getAttribute('role') === 'link'"
 """메뉴 클릭 단계의 요소가 링크인지 (최종 탈퇴는 보통 폼 제출 버튼이다)."""
@@ -16,10 +21,19 @@ EventHandler = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
 class BrowserAgent:
-    def __init__(self, playbook: Playbook, on_event: EventHandler | None = None):
+    def __init__(
+        self,
+        playbook: Playbook,
+        on_event: EventHandler | None = None,
+        next_click_selector: NextClickSelector | None = None,
+        private_values: tuple[str, ...] = (),
+    ):
         self.playbook = playbook
         self.policy = SafetyPolicy(playbook.allowed_domains, playbook.auth_domains)
         self.on_event = on_event
+        self.next_click_selector = next_click_selector
+        self.private_values = private_values
+        self._generic: GenericNavigator | None = None
 
     async def _emit(self, event: dict[str, Any]) -> None:
         safe = {key: redact_sensitive(str(value)) for key, value in event.items()}
@@ -68,6 +82,26 @@ class BrowserAgent:
             if navigate_entry:
                 self.policy.require_allowed_url(self.playbook.entry_url)
                 await page.goto(self.playbook.entry_url, wait_until="domcontentloaded")
+            if not self.playbook.steps:
+                if self.next_click_selector is None:
+                    url = await self._current_url(page)
+                    return AgentResult(
+                        AgentStatus.FAILED,
+                        self.playbook.service_id,
+                        "범용 AI 안내를 사용하려면 Anthropic API 키가 필요합니다",
+                        start_step,
+                        url,
+                        "missing_llm",
+                    )
+                if self._generic is None:
+                    self._generic = GenericNavigator(
+                        self.next_click_selector,
+                        self.policy,
+                        self.playbook.service_id,
+                        self._emit,
+                        self.private_values,
+                    )
+                return await self._generic.run(page, start_step)
             for index in range(start_step, len(self.playbook.steps)):
                 current_step = index
                 current_url = await self._current_url(page)
@@ -160,9 +194,11 @@ class BrowserAgent:
             return AgentResult(
                 AgentStatus.BLOCKED, self.playbook.service_id, str(exc), current_step, url, "policy"
             )
-        except Exception as exc:  # noqa: BLE001 — Playwright 오류를 데스크톱용 결과로 정규화
+        except Exception as exc:
             url = await self._current_url(page)
-            message = redact_sensitive(str(exc))
+            # Playwright 호출 기록(수십 줄)은 로그에만, 화면에는 첫 줄만
+            log.warning("에이전트 실행 오류", exc_info=True)
+            message = redact_sensitive(str(exc).strip().splitlines()[0] if str(exc).strip() else "")
             await self._emit({"status": "failed", "reason": message, "url": url})
             return AgentResult(
                 AgentStatus.FAILED, self.playbook.service_id, message, current_step, url, "runtime"
