@@ -40,7 +40,22 @@ def resolve_service(mail):
         # One service often sends from several subdomains; keep them as one candidate.
         if domain == root or domain.endswith("." + root):
             return service
-    return SERVICES.get(domain, (domain, domain))
+    if domain in SERVICES:
+        return SERVICES[domain]
+    root = registrable_domain(domain)
+    return SERVICES.get(root, (root, root))
+
+
+_SECOND_LEVEL = {"co", "or", "go", "ac", "re", "ne", "pe", "com", "net", "org", "gov", "edu"}
+
+
+def registrable_domain(domain):
+    """info.mexc.com -> mexc.com, mail.example.co.kr -> example.co.kr (no public suffix list)."""
+    parts = domain.split(".")
+    if ":" in domain or parts[-1].isdigit():  # IP addresses (e.g. the local demo) stay as-is
+        return domain
+    keep = 3 if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in _SECOND_LEVEL else 2
+    return ".".join(parts[-keep:])
 
 
 SERVICE_FAMILIES = {

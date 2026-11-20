@@ -191,6 +191,13 @@ def test_대표_서비스의_여러_발신_하위도메인은_한_후보로_묶�
     assert resolve_service(mail(5, domain="notdropbox.com")) == ("notdropbox.com", "notdropbox.com")
 
 
+def test_모르는_서비스도_하위도메인은_같은_후보로_묶는다():
+    assert resolve_service(mail(1, domain="info.mexc.com"))[1] == "mexc.com"
+    assert resolve_service(mail(2, domain="mkt.mexc.com"))[1] == "mexc.com"
+    assert resolve_service(mail(3, domain="mail.sample.co.kr"))[1] == "sample.co.kr"
+    assert resolve_service(mail(4, domain="mail.notion.so")) == ("Notion", "notion.so")
+
+
 def test_빈입력과_취소를_지원한다():
     # given
     a = analyzer({})
