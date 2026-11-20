@@ -8,6 +8,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox, QStyle, QSystemTrayIcon, QWidget
 
 from account_cleaner import providers
+from account_cleaner.browser.agent.llm import api_key_source
 from account_cleaner.contracts import AccountCandidate, AgentEvent, AgentStatus, ParsedMail
 from account_cleaner.core.chrome import CHROME_DOWNLOAD_URL, find_chrome
 from account_cleaner.core.log_setup import setup_logging
@@ -23,6 +24,7 @@ from account_cleaner.storage.crypto import (
     load_or_create_key,
 )
 from account_cleaner.ui.agent_page import AgentPage
+from account_cleaner.ui.api_key_dialog import ApiKeyDialog, ai_status_text
 from account_cleaner.ui.candidates.model import CandidateStatus
 from account_cleaner.ui.candidates.page import InventoryPage
 from account_cleaner.ui.errors import install_excepthook, show_exception
@@ -188,6 +190,22 @@ def record_status(
             cleaner.clear_due()
 
 
+AI_STATUS = "AI 안내"
+
+
+def open_api_key_dialog(window: MainWindow, inventory: InventoryPage) -> ApiKeyDialog:
+    """사이드바 `AI 키 설정`. 키를 바꾸면 상태 줄과 상세 패널 버튼을 다시 계산한다 (#81)."""
+    dialog = ApiKeyDialog(window)
+
+    def changed() -> None:
+        window.sidebar_footer.set_status(AI_STATUS, ai_status_text(api_key_source()))
+        inventory.refresh_detail()
+
+    dialog.key_changed.connect(changed)
+    dialog.open()
+    return dialog
+
+
 def confirm_clear_logins(
     window: QWidget,
     cleaner: SessionCleaner,
@@ -350,6 +368,9 @@ def main() -> int:
     window.sidebar_footer.set_status(ENCRYPTION_STATUS, encryption_status(key))
     agent_page = AgentPage(paths.browser_profile)
     agent_page.run_finished.connect(lambda event: record_agent_result(agent_page, store, event))
+    agent_page.running_changed.connect(
+        lambda running: window.set_nav_badge(PageId.AGENT, "진행" if running else None)
+    )
     cleaner = SessionCleaner(
         store,
         paths.browser_profile,
@@ -361,6 +382,8 @@ def main() -> int:
     agent_page.run_finished.connect(lambda _event: cleaner.retry_pending())
     cleaner.cleared.connect(lambda domains: show_cleanup_result(window, domains))
     cleaner.failed.connect(lambda text: window.statusBar().showMessage(text, 15_000))
+    window.sidebar_footer.set_status(AI_STATUS, ai_status_text(api_key_source()))
+    window.sidebar_footer.api_key_requested.connect(lambda: open_api_key_dialog(window, inventory))
     window.sidebar_footer.clear_logins_requested.connect(
         lambda: confirm_clear_logins(window, cleaner)
     )

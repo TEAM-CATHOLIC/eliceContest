@@ -64,6 +64,53 @@ def llm_available() -> bool:
     return anthropic_api_key() is not None
 
 
+class ApiKeyStoreError(RuntimeError):
+    """키체인을 쓸 수 없어 API 키를 저장·삭제하지 못함."""
+
+
+KEY_PREFIX = "sk-ant-"
+
+
+def api_key_source() -> str | None:
+    """ "env"(환경변수) | "keychain" | None. 환경변수가 있으면 그게 먼저 쓰인다."""
+    if os.environ.get(API_KEY_ENV, "").strip():
+        return "env"
+    return "keychain" if anthropic_api_key() else None
+
+
+def _usable_keyring():
+    import keyring
+    from keyring.backends import fail
+
+    backend = keyring.get_keyring()
+    if isinstance(backend, fail.Keyring) or getattr(backend, "priority", 0) <= 0:
+        raise ApiKeyStoreError(f"쓸 수 있는 키체인이 없습니다 ({type(backend).__name__})")
+    return keyring
+
+
+def save_api_key(key: str) -> None:
+    """사용자가 입력한 API 키를 OS 키체인에 저장한다 (#81). 파일·로그에는 남기지 않는다."""
+    key = key.strip()
+    if not key.startswith(KEY_PREFIX) or len(key) < 20 or any(c.isspace() for c in key):
+        raise ValueError("Anthropic API 키는 sk-ant- 로 시작합니다")
+    keyring = _usable_keyring()
+    try:
+        keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, key)
+    except Exception as e:  # 백엔드마다 예외가 달라 이유만 알린다
+        raise ApiKeyStoreError(f"키체인에 저장하지 못했습니다 ({type(e).__name__})") from e
+
+
+def delete_api_key() -> None:
+    """키체인의 API 키를 지운다. 없으면 아무 일도 하지 않는다."""
+    keyring = _usable_keyring()
+    from keyring.errors import PasswordDeleteError
+
+    try:
+        keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
+    except PasswordDeleteError:
+        pass
+
+
 class AnthropicNextClickSelector:
     """Claude 구조화 출력으로 후보 번호 하나를 고른다."""
 

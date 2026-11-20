@@ -35,6 +35,7 @@ from account_cleaner.contracts import (
     WithdrawAgent,
 )
 from account_cleaner.contracts.login import LoginMethod
+from account_cleaner.ui.activity import RunIndicator
 from account_cleaner.ui.theme import page_header, page_layout, section_card, set_role, tokens
 from account_cleaner.ui.workers import BackgroundTask
 
@@ -49,6 +50,13 @@ STATUS_TEXT = {
     AgentStatus.STOPPED: "중단했습니다",
     AgentStatus.FAILED: "진행하지 못했습니다",
 }
+
+PHASE_TEXT = {
+    AgentStatus.NAVIGATING: "AI가 다음 화면을 찾는 중",
+    AgentStatus.USER_TURN: "Chrome 창에서 직접 처리하기를 기다리는 중",
+    AgentStatus.REACHED: "탈퇴 화면 도착 · Chrome 창을 닫으면 끝나요",
+}
+"""진행 표시 줄 문구 (#83)"""
 
 # 단계 행 앞 표시
 DONE, CURRENT, WAITING, PENDING, LOCKED = "✓", "▶", "⏸", "○", "🔒"
@@ -126,6 +134,8 @@ CandidateLookup = Callable[[str], AccountCandidate | None]
 
 class AgentPage(QWidget):
     run_finished = Signal(object)
+    running_changed = Signal(bool)
+    """안내가 시작되면 True, 끝나면 False (사이드바 '진행' 배지용, #83)"""
     """마지막 `AgentEvent` (종료 상태)"""
 
     def __init__(
@@ -181,6 +191,8 @@ class AgentPage(QWidget):
         chooser.addWidget(self.start_button)
         chooser.addWidget(self.stop_button)
         control.addLayout(chooser)
+        self.activity = RunIndicator()
+        control.addWidget(self.activity)
 
         # 왼쪽: 진행 단계 (+ 사용자 차례 알림)
         self.steps = StepList()
@@ -379,6 +391,11 @@ class AgentPage(QWidget):
     def _on_event(self, event: AgentEvent) -> None:
         self.steps.update_from(event)
         self.status_label.setText(STATUS_TEXT[event.status])
+        if event.status in PHASE_TEXT and self.is_running():
+            self.activity.set_phase(
+                PHASE_TEXT[event.status],
+                waiting=event.status is not AgentStatus.NAVIGATING,
+            )
         if event.url:
             self.url_label.setText(event.url)
         if event.message:
@@ -407,6 +424,11 @@ class AgentPage(QWidget):
     # --- 기타 ---
 
     def _set_running(self, running: bool) -> None:
+        if running:
+            self.activity.start("Chrome을 여는 중")
+        else:
+            self.activity.stop()
+        self.running_changed.emit(running)
         self.start_button.setEnabled(not running)
         self.service_combo.setEnabled(not running)
         self.stop_button.setEnabled(running)
