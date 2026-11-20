@@ -65,8 +65,11 @@ def explain_score(candidate: AccountCandidate) -> str:
         text += " 과거 탈퇴 완료 근거가 있습니다. 이후 재가입과 현재 상태는 확인이 필요합니다."
     elif deleted:
         text += " 삭제 유형은 모델의 추정입니다. 탈퇴 완료로 확인되지 않았으니 본문을 검토하세요."
-    if set(counts) == {EvidenceType.PROMO}:
-        text += " 광고·초대만 발견한 약한 흔적이며 가입 여부는 확인되지 않았습니다."
+    if set(counts) <= {EvidenceType.PROMO, EvidenceType.TERMS}:
+        text += (
+            " 광고·안내 메일은 보통 회원에게만 보내므로 계정이 있을 가능성이 높습니다."
+            " 다만 가입 완료나 로그인 메일은 찾지 못했습니다."
+        )
     if candidate.domain.endswith(".invalid"):
         text += " 서비스 이름만 발견했으며 실제 사이트 주소는 확인되지 않았습니다."
     return text

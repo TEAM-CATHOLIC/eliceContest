@@ -91,11 +91,20 @@ def test_명시적_삭제완료도_현재상태로_단정하지않는다():
     assert "재가입" in explain_score(candidate)
 
 
-def test_광고만있는_후보는_가입미확인으로_설명한다():
+def test_광고만있는_후보는_회원일_가능성과_가입메일이_없음을_함께_설명한다():
     candidate = AccountCandidate(
-        "샘플", "sample.example", 0, (Evidence("x", EvidenceType.PROMO, 0.9),), T, T
+        "샘플", "sample.example", 0.55, (Evidence("x", EvidenceType.PROMO, 0.9),), T, T
     )
-    assert "약한 흔적" in explain_score(candidate)
+    text = explain_score(candidate)
+    assert text.startswith("계정 있음")
+    assert "회원에게만" in text and "찾지 못했습니다" in text
+
+
+def test_탈퇴완료_메일이_마지막인_후보는_탈퇴_완료로_보인다():
+    candidate = AccountCandidate(
+        "샘플", "sample.example", 0.1, (Evidence("x", EvidenceType.DELETED, 1.0),), T, T
+    )
+    assert explain_score(candidate).startswith("탈퇴 완료")
 
 
 def test_후보를_고르기_전에는_안내만_보인다(panel):

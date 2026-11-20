@@ -25,6 +25,11 @@ STRENGTH = {
 }
 MODEL_DISCOUNT = 0.7
 """Evidence decided by the model alone counts less than evidence matched by an explicit rule."""
+MEMBER_BASE = 0.55
+"""Starting score of any service that still mails you after phishing and work mail are removed."""
+NOT_FINISHED = ("requested", "account_not_found", "existing_address_signup_blocked")
+"""Stages that do not show a finished sign-up. "requested" counts only for sign-up verification;
+a password-reset request still implies an existing account."""
 
 
 class LocalAccountAnalyzer(AccountAnalyzer):
@@ -82,7 +87,10 @@ class LocalAccountAnalyzer(AccountAnalyzer):
                     1.0 if p["decision_source"] == "rule" else MODEL_DISCOUNT
                 )
                 strength[p["type"]] = max(strength[p["type"]], weight)
-            score = 1.0 - math.prod(1.0 - w for w in strength.values())
+            # A service that keeps mailing you is almost always one you joined (Korean services
+            # send ads and privacy notices only to members), so every surviving candidate starts
+            # as an account and is lowered only by evidence against it below.
+            score = max(MEMBER_BASE, 1.0 - math.prod(1.0 - w for w in strength.values()))
             decisive = [
                 (m, p)
                 for m, p in items
@@ -93,12 +101,13 @@ class LocalAccountAnalyzer(AccountAnalyzer):
                 latest = decisive[-1][1]
                 if latest["type"] == "deleted":
                     score = min(score, 0.10)
-                elif latest["stage_hint"] in (
-                    "requested",
-                    "account_not_found",
-                    "existing_address_signup_blocked",
-                ):
-                    score = min(score, 0.25)
+            if all(
+                p["stage_hint"] in NOT_FINISHED[1:]
+                or (p["stage_hint"] == NOT_FINISHED[0] and p["type"] == "signup")
+                for _, p in items
+            ):
+                # Only a verification request or a refused signup: sign-up may never have finished.
+                score = min(score, 0.25)
             candidates.append(
                 AccountCandidate(
                     service=service,

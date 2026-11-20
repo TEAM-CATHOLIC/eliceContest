@@ -197,4 +197,10 @@ LINKED_SERVICES = {
 }
 
 
-PROCESSORS = {"bill-mail.tosspayments.com", "inicis.com", "easypay.co.kr", "tosspayments.com"}
+PROCESSORS = {
+    "bill-mail.tosspayments.com",
+    "inicis.com",
+    "easypay.co.kr",
+    "tosspayments.com",
+    "kcp.co.kr",
+}

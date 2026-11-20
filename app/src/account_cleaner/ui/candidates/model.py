@@ -101,8 +101,13 @@ def has_account(candidate: AccountCandidate) -> bool:
 
 
 def verdict_label(candidate: AccountCandidate) -> str:
-    """메일 근거로 본 판정. 근거가 약하면 "아님"이 아니라 "확인 안 됨"이다."""
-    return "계정 있음" if has_account(candidate) else "확인 안 됨"
+    """메일 근거로 본 판정. 탈퇴 완료 메일이 마지막이면 "탈퇴 완료", 가입을 끝낸 근거가 없으면
+    "아님"이 아니라 "확인 안 됨"이다."""
+    if has_account(candidate):
+        return "계정 있음"
+    if any(e.type is EvidenceType.DELETED and e.probability == 1.0 for e in candidate.evidence):
+        return "탈퇴 완료"
+    return "확인 안 됨"
 
 
 def evidence_summary(candidate: AccountCandidate, limit: int = 3) -> str:

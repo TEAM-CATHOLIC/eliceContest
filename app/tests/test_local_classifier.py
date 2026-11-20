@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from account_cleaner import classifier, providers
-from account_cleaner.classifier.analyzer import LocalAccountAnalyzer, resolve_service
+from account_cleaner.classifier.analyzer import MEMBER_BASE, LocalAccountAnalyzer, resolve_service
 from account_cleaner.classifier.model import explicit_rule, model_text, stage_hint
 from account_cleaner.contracts import AnalysisCancelled, EvidenceType, ParsedMail
 
@@ -64,7 +64,7 @@ def test_개인메일없이_계약에_맞는_후보와_진행률을_돌려준다
     assert result[0].confirmed_login_method is None
 
 
-def test_중복아이디를_제외하고_광고만있는_후보는_약한흔적으로_남긴다():
+def test_중복아이디를_제외하고_광고만_오는_서비스도_회원으로_본다():
     # given / when
     a = analyzer({"1": ("signup", "unknown"), "2": ("promo", "unknown")})
     result = a.analyze([mail(1), mail(1), mail(2, domain="ads.example")])
@@ -72,7 +72,7 @@ def test_중복아이디를_제외하고_광고만있는_후보는_약한흔적�
     assert len(result) == 2
     assert len(result[0].evidence) == 1
     assert result[1].domain == "ads.example"
-    assert result[1].score == 0
+    assert result[1].score == MEMBER_BASE
 
 
 def test_피싱으로_보이는_메일은_계정_후보의_근거로_쓰지_않는다():
@@ -83,7 +83,7 @@ def test_피싱으로_보이는_메일은_계정_후보의_근거로_쓰지_않�
     assert [c.domain for c in result] == ["sample.example"]
 
 
-def test_관련성판정이_의심_업무메일은_후보에서_빼고_광고는_약한흔적으로_낮춘다():
+def test_관련성판정이_의심_업무메일은_후보에서_빼고_광고는_광고_근거로_바꾼다():
     # given
     a = analyzer(
         {
@@ -104,7 +104,7 @@ def test_관련성판정이_의심_업무메일은_후보에서_빼고_광고는
     # then
     assert [c.domain for c in result] == ["sample.example", "ads.example"]
     assert result[1].evidence[0].type is EvidenceType.PROMO
-    assert result[1].score == 0
+    assert result[1].score == MEMBER_BASE
 
 
 def test_관련성판정_가중치는_임계값_미만이면_판정하지_않는다():

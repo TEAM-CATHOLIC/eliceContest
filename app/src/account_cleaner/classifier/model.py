@@ -47,6 +47,9 @@ DELETED_COMPLETED = re.compile(
 )
 
 
+SIGNUP_WORDS = r"가입|이메일 인증|joining|join us|sign(?:ing)? up|register"
+
+
 def stage_hint(subject, body):
     """Supplementary deterministic hint, independent from six-way ML prediction."""
     text = subject + "\n" + body[:1600]
@@ -66,6 +69,12 @@ def stage_hint(subject, body):
     if re.search(r"인증.{0,15}(?:필수적인 단계|마쳐야|완료해야)|이메일.{0,5}인증(?:하기|해)", text):
         return "requested"
     if re.search(
+        r"verification code|verify your email|confirm your email|인증\s*번호|인증\s*코드",
+        text,
+        re.IGNORECASE,
+    ) and re.search(SIGNUP_WORDS, text, re.IGNORECASE):
+        return "requested"
+    if re.search(
         r"비밀번호.{0,30}(?:요청|링크입니다)|비밀번호.{0,15}변경해주세요", text
     ) and not re.search(
         r"비밀번호(?:가| 변경이| 재설정이)? (?:성공적으로 )?(?:변경되었|재설정되었|완료)", text
@@ -83,7 +92,7 @@ def explicit_rule(subject, body):
         return "promo", "제목의 광고 표시"
     if re.search(r"약관|처리방침|개인정보 이용.{0,5}내역|휴면", subject):
         return "terms", "제목의 약관·휴면 안내"
-    if hint == "requested" and re.search(r"가입|이메일 인증", subject + " " + body[:500]):
+    if hint == "requested" and re.search(SIGNUP_WORDS, subject + " " + body[:500], re.IGNORECASE):
         return "signup", "가입용 이메일 인증 요청"
     if re.search(r"회원\s*가입\s*완료", subject) and re.search(
         r"회원이 되신|가입.{0,15}완료|계정 생성.{0,15}완료", body[:600]
