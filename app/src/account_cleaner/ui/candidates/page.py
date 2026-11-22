@@ -193,6 +193,10 @@ class InventoryPage(QWidget):
         """위쪽 막대 검색창(`TopBar.search_changed`)과 연결한다."""
         self.proxy.set_search(text)
 
+    def refresh_detail(self) -> None:
+        """고른 후보의 상세를 다시 그린다 (예: AI 키를 바꿔 'AI 안내' 버튼 상태가 바뀔 때)."""
+        self._show_detail(self._selected)
+
     def visible_candidates(self) -> list[AccountCandidate]:
         return [self.proxy.index(i, 0).data(Role.CANDIDATE) for i in range(self.proxy.rowCount())]
 
