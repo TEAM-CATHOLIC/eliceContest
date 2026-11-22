@@ -1,5 +1,6 @@
 # PyInstaller 설정. app/ 폴더에서 실행:  uv run pyinstaller packaging/account_cleaner.spec
 # 결과: dist/AccountCleaner/ (Windows·Linux), dist/AccountCleaner.app (macOS)
+import os
 import sys
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -45,6 +46,7 @@ exe = EXE(
     name=APP_NAME,
     console=False,
     argv_emulation=False,
+    icon=os.path.join(SPECPATH, "icons", "app_icon.ico") if sys.platform == "win32" else None,
 )
 
 coll = COLLECT(exe, a.binaries, a.datas, name=APP_NAME)
@@ -54,6 +56,7 @@ if sys.platform == "darwin":
         coll,
         name=f"{APP_NAME}.app",
         bundle_identifier="com.team-catholic.accountcleaner",
+        icon=os.path.join(SPECPATH, "icons", "app_icon.icns"),
         info_plist={
             "CFBundleDisplayName": "계정 정리 AI 에이전트",
             "CFBundleShortVersionString": "0.1.0",

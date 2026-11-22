@@ -149,3 +149,12 @@ def test_구역_카드는_소제목과_넉넉한_안쪽_여백을_가진다(qapp
     assert layout.itemAt(0).widget().text() == "서비스별 진행"
     margins = layout.contentsMargins()
     assert min(margins.left(), margins.top(), margins.right()) >= tokens.SPACE_4
+
+
+def test_앱_아이콘_파일이_있고_창_아이콘으로_불러올_수_있다(qapp):
+    # given / when
+    from account_cleaner.ui.theme.icons import APP_ICON, app_icon
+
+    # then
+    assert APP_ICON.is_file()
+    assert not app_icon().isNull()
