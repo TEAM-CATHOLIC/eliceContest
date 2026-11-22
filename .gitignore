@@ -27,6 +27,3 @@ app/src/account_cleaner/resources/google_client_secret.json
 
 # AI 모델을 넣은 빌드를 만들 때만 두는 모델 폴더 (가중치는 저장소에 넣지 않는다)
 app/src/account_cleaner/classifier/bundled/
-
-# etc
-personal_docs/
