@@ -26,6 +26,8 @@ class FakeElement:
             self.page.elements = self.data["next"]
         if self.data.get("next_url"):
             self.page.url = self.data["next_url"]
+        if self.data.get("shows_password"):
+            self.page.password = True
 
 
 class FakeCollection:
@@ -40,6 +42,14 @@ class FakeCollection:
         return FakeElement(self.page, self.page.elements[index])
 
 
+class FakePasswordField:
+    def __init__(self, page):
+        self.page = page
+
+    async def count(self):
+        return 1 if self.page.password else 0
+
+
 class FakePage:
     def __init__(self, elements):
         self.url = "https://example.com/settings"
@@ -48,7 +58,12 @@ class FakePage:
         self.gotos = []
         self.dispatched = []
 
+    password = False
+    """화면에 비밀번호 칸이 보이는가"""
+
     def locator(self, selector):
+        if "password" in selector:
+            return FakePasswordField(self)
         return FakeCollection(self, selector == INTERACTIVE_SELECTOR)
 
     async def goto(self, url, **_kwargs):
@@ -443,3 +458,60 @@ def test_외부_도메인을_막으면_어느_도메인인지_알려_준다():
 
     # then
     assert "evil.example" in result.message
+
+
+def test_탈퇴_버튼을_눌러_나온_비밀번호_칸은_로그인이_아니라_탈퇴_화면_도착이다():
+    # given (inflearn): 계정 설정의 "계정 탈퇴"를 누르면 같은 주소에서 비밀번호 재확인 칸이 뜬다
+    withdraw = element("계정 탈퇴", tag="button", next=[element("취소", tag="button")])
+    withdraw["shows_password"] = True
+    page = FakePage([element("프로필"), withdraw])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector(1)).run(page))
+
+    # then
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+    assert "비밀번호" in result.message
+
+
+def test_탈퇴_주소의_비밀번호_칸도_탈퇴_화면_도착이다():
+    # given: 버튼 글자는 평범하지만 이동한 주소가 탈퇴 화면
+    manage = element("계정 관리", next=[element("취소", tag="button")])
+    manage["next_url"] = "https://example.com/my/settings/account/withdraw"
+    manage["shows_password"] = True
+    page = FakePage([manage])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector(0)).run(page))
+
+    # then
+    assert result.status is AgentStatus.REACHED_WITHDRAWAL
+
+
+def test_로그인_링크를_눌러_나온_비밀번호_칸은_그대로_사용자에게_로그인을_넘긴다():
+    # given
+    login = element("로그인", next=[element("비밀번호 찾기")])
+    login["next_url"] = "https://example.com/login"
+    login["shows_password"] = True
+    page = FakePage([login])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector(0)).run(page))
+
+    # then
+    assert result.status is AgentStatus.WAITING_FOR_USER
+    assert result.reason == "password"
+
+
+def test_탈퇴_링크가_로그인_화면으로_튕기면_도착이_아니라_로그인을_넘긴다():
+    # given: 로그아웃 상태에서 "회원탈퇴 안내" 링크 → 로그인 화면
+    leave = element("탈퇴 안내", next=[element("비밀번호 찾기")])
+    leave["next_url"] = "https://example.com/login?next=/withdraw"
+    leave["shows_password"] = True
+    page = FakePage([leave])
+
+    # when
+    result = run(BrowserAgent(playbook(), next_click_selector=FakeSelector(0)).run(page))
+
+    # then
+    assert result.status is AgentStatus.WAITING_FOR_USER

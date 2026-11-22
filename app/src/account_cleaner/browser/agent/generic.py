@@ -48,6 +48,12 @@ MAX_MENU_TRIES = 2
 LOGIN = re.compile(r"로그인|log\s*in|sign\s*in", re.IGNORECASE)
 """로그아웃 상태의 로그인 진입점"""
 MAX_STEPS = 12
+WITHDRAW_HINT = re.compile(
+    r"withdraw|leave|resign|unregist|secession|deactivat|delete|close.?account|탈퇴|해지",
+    re.IGNORECASE,
+)
+"""탈퇴 화면을 가리키는 주소·버튼 글자. 여기서 나온 비밀번호 칸은 로그인이 아니라 탈퇴 전 본인 확인이다"""
+LOGIN_PATH = re.compile(r"log.?in|sign.?in|auth", re.IGNORECASE)
 SKIPPED_SCHEMES = ("mailto", "tel", "sms", "data", "blob")
 """메일·전화 앱을 여는 링크는 후보에서 뺀다"""
 CLICK_TIMEOUT_MS = 5_000
@@ -196,6 +202,8 @@ class GenericNavigator:
         self.menu_tried: set[str] = set()
         """로그인 진입점을 이미 한 번 눌렀다 (두 번째부터는 누르지 않고 사용자에게 넘긴다)"""
         self.history: list[str] = []
+        self.last_click = ""
+        """마지막으로 누른 요소의 글자 (탈퇴 버튼을 눌러 나온 비밀번호 칸인지 판단)"""
 
     async def run(self, page: Any, start_step: int = 0) -> AgentResult:
         for attempt in range(start_step, MAX_STEPS):
@@ -213,28 +221,14 @@ class GenericNavigator:
             await _settle(page)
             handoff = await detect_handoff(page)
             if handoff:
-                return AgentResult(
-                    AgentStatus.WAITING_FOR_USER,
-                    self.service_id,
-                    "사용자 인증 또는 입력이 필요합니다",
-                    attempt,
-                    current_url,
-                    handoff.reason,
-                )
+                return await self._handoff_result(handoff.reason, attempt, current_url)
 
             elements = await self._elements_when_ready(page, attempt, current_url)
             if self._waited:
                 # 늦게 뜬 화면이 로그인 화면일 수 있다
                 handoff = await detect_handoff(page)
                 if handoff:
-                    return AgentResult(
-                        AgentStatus.WAITING_FOR_USER,
-                        self.service_id,
-                        "사용자 인증 또는 입력이 필요합니다",
-                        attempt,
-                        current_url,
-                        handoff.reason,
-                    )
+                    return await self._handoff_result(handoff.reason, attempt, current_url)
             final = next(
                 (
                     item
@@ -316,6 +310,7 @@ class GenericNavigator:
                     "url": current_url,
                 }
             )
+            self.last_click = text
             if not await self._click(page, chosen):
                 # 다른 요소(펼친 메뉴·고정 헤더)에 가려 못 눌렀다: 같은 요소를 다시 골라도 되게 하고 AI에 알린다
                 self.visited.discard(fingerprint)
@@ -327,6 +322,35 @@ class GenericNavigator:
 
         current_url = str(page.url() if callable(page.url) else page.url)
         return self._failed(MAX_STEPS, current_url, "최대 탐색 단계를 초과했습니다")
+
+    def _is_withdraw_confirmation(self, url: str) -> bool:
+        """탈퇴 버튼을 누른 뒤 나온 비밀번호 칸인가 (inflearn: 탈퇴 전 비밀번호 재확인).
+
+        로그인 화면 주소면 탈퇴 링크를 눌러 로그인으로 튕긴 경우라 아니다.
+        """
+        path = urlparse(url).path
+        if LOGIN_PATH.search(path):
+            return False
+        return bool(WITHDRAW_HINT.search(path) or WITHDRAW_HINT.search(self.last_click))
+
+    async def _handoff_result(self, reason: str, attempt: int, url: str) -> AgentResult:
+        if reason == "password" and self._is_withdraw_confirmation(url):
+            await self.emit({"status": "reached_withdrawal", "step": attempt, "url": url})
+            return AgentResult(
+                AgentStatus.REACHED_WITHDRAWAL,
+                self.service_id,
+                "탈퇴 화면에 도착했습니다. 본인 확인 비밀번호와 최종 탈퇴 버튼은 직접 입력·클릭하세요",
+                attempt + 1,
+                url,
+            )
+        return AgentResult(
+            AgentStatus.WAITING_FOR_USER,
+            self.service_id,
+            "사용자 인증 또는 입력이 필요합니다",
+            attempt,
+            url,
+            reason,
+        )
 
     async def _click(self, page: Any, chosen: ExtractedElement) -> bool:
         """누른다. 펼친 메뉴·고정 헤더가 가려 클릭이 막히면 30초씩 기다리지 않는다 (#79, inflearn).
