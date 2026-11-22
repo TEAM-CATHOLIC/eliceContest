@@ -1,7 +1,11 @@
 name: Build
 
 # Mac·Windows 실행파일을 만들고, 만든 실행파일로 self-test(Qt·리소스·Playwright 드라이버·Chrome 실행)를 돌린다.
-# 결과물은 Actions 실행 페이지의 Artifacts에서 내려받는다.
+# 결과물은 Artifacts(무료 조직 한도 500MB) 대신 GitHub Release에 올린다 (#86).
+# - PR: 빌드·self-test만 한다 (올리지 않는다)
+# - develop push: Release `develop-latest`(사전 출시)의 zip을 최신 빌드로 덮어쓴다 (AI 모델 없음, 키워드 가짜 분석기)
+# - main push: AI 모델을 넣어 빌드하고 새 Release `app-날짜-커밋`을 만든다 (심사 제출·배포용, #90)
+# - 수동 실행(Actions → Build → Run workflow): "AI 모델 포함"을 켜면 `<브랜치>-ai-latest`에 올린다
 
 on:
   push:
@@ -17,9 +21,14 @@ on:
       - "app/src/account_cleaner/mail/gmail.py"
       - ".github/workflows/build.yml"
   workflow_dispatch:
+    inputs:
+      with_model:
+        description: "AI 모델 포함 (zip 약 650MB, 빌드 15~25분)"
+        type: boolean
+        default: true
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -29,7 +38,7 @@ jobs:
   build:
     name: build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +52,9 @@ jobs:
         working-directory: app
     env:
       QT_QPA_PLATFORM: offscreen
+      # main push 또는 수동 실행에서 체크했을 때 AI 모델을 넣는다
+      WITH_MODEL: ${{ (github.event_name == 'workflow_dispatch' && inputs.with_model) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+      MODEL_RELEASE: model-e5ft-20261120
     steps:
       - uses: actions/checkout@v4
 
@@ -71,26 +83,46 @@ jobs:
             echo "GOOGLE_CLIENT_SECRET_JSON 없음 - Gmail 연결 없이 빌드"
           fi
 
+      # 테스트는 위에서 기본 의존성으로 끝냈다. 여기서부터 torch·sentence-transformers와 모델을 더한다
+      - name: AI 모델 넣기 (WITH_MODEL일 때만)
+        if: env.WITH_MODEL == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          uv sync --locked --group ml
+          gh release download "$MODEL_RELEASE" --pattern classifier-model-e5ft.zip --dir "$RUNNER_TEMP"
+          uv run python -m zipfile -e "$RUNNER_TEMP/classifier-model-e5ft.zip" src/account_cleaner/classifier/bundled
+          test -f src/account_cleaner/classifier/bundled/manifest.json
+          du -sh src/account_cleaner/classifier/bundled
+
       - name: PyInstaller 빌드
         run: uv run pyinstaller --noconfirm packaging/account_cleaner.spec
 
       - name: self-test (macOS)
         if: runner.os == 'macOS'
-        run: dist/AccountCleaner.app/Contents/MacOS/AccountCleaner --self-test --require-chrome --report self-test.txt
+        shell: bash
+        run: |
+          extra=(); [ "$WITH_MODEL" = true ] && extra=(--require-model)
+          dist/AccountCleaner.app/Contents/MacOS/AccountCleaner --self-test --require-chrome "${extra[@]}" --report self-test.txt
 
       - name: self-test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         # 창 모드 실행파일은 그냥 실행하면 기다리지 않으므로 Start-Process -Wait로 종료 코드를 받는다.
         run: |
-          $p = Start-Process dist\AccountCleaner\AccountCleaner.exe -Wait -PassThru `
-            -ArgumentList '--self-test','--require-chrome','--report',"$PWD\self-test.txt"
+          $argsList = @('--self-test','--require-chrome','--report',"$PWD\self-test.txt")
+          if ($env:WITH_MODEL -eq 'true') { $argsList += '--require-model' }
+          $p = Start-Process dist\AccountCleaner\AccountCleaner.exe -Wait -PassThru -ArgumentList $argsList
           exit $p.ExitCode
 
       - name: self-test 결과
         if: always()
         shell: bash
-        run: cat self-test.txt || echo "보고서 없음"
+        run: |
+          cat self-test.txt || echo "보고서 없음"
+          du -sh dist/* || true
 
       - name: 압축 (macOS)
         if: runner.os == 'macOS'
@@ -103,16 +135,21 @@ jobs:
         run: Compress-Archive -Path dist\AccountCleaner -DestinationPath AccountCleaner-windows.zip
 
       - name: Release에 올리기
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ZIP: AccountCleaner-${{ matrix.name }}.zip
         run: |
-          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+          ls -lh "$ZIP"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            suffix=$([ "$WITH_MODEL" = true ] && echo ai-latest || echo latest)
+            tag="${GITHUB_REF_NAME//\//-}-$suffix"
+            flags=(--prerelease --title "$tag" --notes "수동 빌드 (AI 모델 포함: $WITH_MODEL)")
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             tag="app-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
-            flags=(--title "AccountCleaner $tag" --notes "main 빌드 ${GITHUB_SHA}. 압축을 풀고 실행하세요.")
+            flags=(--title "AccountCleaner $tag" --notes "main 빌드 ${GITHUB_SHA} (AI 모델 포함). 압축을 풀고 실행하세요.")
           else
             tag="develop-latest"
             flags=(--prerelease --title "develop 최신 빌드" --notes "develop 최신 빌드. 개발 확인용.")
@@ -120,6 +157,6 @@ jobs:
           # Windows·macOS 작업이 동시에 만들 수 있어 이미 있으면 넘어간다
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --target "$GITHUB_SHA" "${flags[@]}" || true
           gh release upload "$tag" "$ZIP" --clobber
-          if [ "$tag" = "develop-latest" ]; then
-            gh release edit "$tag" --notes "develop 최신 빌드: ${GITHUB_SHA} ($(date -u +%Y-%m-%dT%H:%MZ)). 개발 확인용."
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            gh release edit "$tag" --notes "${GITHUB_REF_NAME} 빌드: ${GITHUB_SHA} ($(date -u +%Y-%m-%dT%H:%MZ)), AI 모델 포함: ${WITH_MODEL}. 개발 확인용."
           fi

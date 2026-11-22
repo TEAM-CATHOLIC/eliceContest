@@ -77,3 +77,46 @@ def test_self_test_옵션은_모르는_인자를_무시하고_결과를_파일�
     # then
     assert code == 0
     assert "OK   qt" in report.read_text(encoding="utf-8")
+
+
+def test_모델이_없는_빌드는_가짜_분석기로_통과하고_모델_필수면_실패한다(monkeypatch):
+    # given (#90)
+    from account_cleaner import classifier
+    from account_cleaner.core.self_test import check_classifier
+
+    monkeypatch.setattr(classifier, "is_configured", lambda: False)
+
+    # when
+    optional = check_classifier(require_model=False)
+    required = check_classifier(require_model=True)
+
+    # then
+    assert optional.ok and "가짜" in optional.detail
+    assert not required.ok
+
+
+def test_모델이_묶인_빌드는_메일_한_통을_실제로_분류해_본다(monkeypatch):
+    # given (#90)
+    from types import SimpleNamespace
+
+    from account_cleaner import classifier
+    from account_cleaner.core.self_test import check_classifier
+
+    seen = []
+
+    class FakePredictor:
+        def predict(self, rows):
+            seen.extend(rows)
+            return [{"type": "promo"}]
+
+    monkeypatch.setattr(classifier, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        classifier, "create_analyzer", lambda: SimpleNamespace(predictor=FakePredictor())
+    )
+
+    # when
+    check = check_classifier(require_model=True)
+
+    # then
+    assert check.ok and "type=promo" in check.detail
+    assert len(seen) == 1

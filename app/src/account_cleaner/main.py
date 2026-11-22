@@ -53,6 +53,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--self-test", action="store_true", help="창 없이 묶인 구성요소를 확인하고 종료"
     )
     parser.add_argument("--require-chrome", action="store_true", help="Chrome이 없으면 실패")
+    parser.add_argument(
+        "--require-model", action="store_true", help="AI 모델이 묶여 있지 않으면 실패"
+    )
     parser.add_argument("--report", type=Path, help="self-test 결과를 쓸 파일")
     parser.add_argument(
         "--import-file", type=Path, nargs="+", help="실행 후 로컬 메일 파일 가져오기"
@@ -65,7 +68,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def self_test(args: argparse.Namespace) -> int:
     from account_cleaner.core.self_test import run_self_test
 
-    checks = run_self_test(require_chrome=args.require_chrome)
+    checks = run_self_test(require_chrome=args.require_chrome, require_model=args.require_model)
     text = "\n".join(c.line() for c in checks) + "\n"
     if args.report:
         args.report.write_text(text, encoding="utf-8")

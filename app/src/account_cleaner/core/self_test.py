@@ -76,6 +76,22 @@ def check_llm() -> Check:
     return Check("llm", True, f"anthropic {anthropic.__version__}, pydantic {pydantic.VERSION}")
 
 
+def check_classifier(require_model: bool) -> Check:
+    """AI 포함 빌드(#90): 묶인 모델과 torch·sentence-transformers로 메일 한 통을 실제로 분류해 본다.
+
+    모델이 없는 빌드는 키워드 가짜 분석기를 쓰므로 통과 (require_model이면 실패).
+    """
+    from account_cleaner import classifier
+
+    if not classifier.is_configured():
+        return Check("classifier", not require_model, "모델 없음 (키워드 가짜 분석기)")
+    analyzer = classifier.create_analyzer()
+    # 규칙에 걸리지 않는 문장이라 모델(인코더)까지 실제로 거친다
+    rows = [{"id": "self-test", "subject": "이번 주 소식", "body_text": "이번 주 소식을 전합니다."}]
+    prediction = analyzer.predictor.predict(rows)[0]
+    return Check("classifier", True, f"모델 추론 OK (type={prediction['type']})")
+
+
 def check_keychain() -> Check:
     """근거 메일 암호화 키를 둘 OS 키체인 백엔드가 묶였는지 (키를 쓰거나 읽지는 않는다).
 
@@ -121,7 +137,7 @@ def check_browser(require_chrome: bool) -> list[Check]:
     return checks
 
 
-def run_self_test(require_chrome: bool = False) -> list[Check]:
+def run_self_test(require_chrome: bool = False, require_model: bool = False) -> list[Check]:
     checks: list[Check] = []
     for name, fn in (
         ("qt", check_qt),
@@ -130,6 +146,7 @@ def run_self_test(require_chrome: bool = False) -> list[Check]:
         ("providers", check_providers),
         ("llm", check_llm),
         ("keychain", check_keychain),
+        ("classifier", lambda: check_classifier(require_model)),
     ):
         try:
             checks.append(fn())
