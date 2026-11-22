@@ -117,6 +117,19 @@ jobs:
           $p = Start-Process dist\AccountCleaner\AccountCleaner.exe -Wait -PassThru -ArgumentList $argsList
           exit $p.ExitCode
 
+      - name: 진단 (macOS 모델 폴더 배치)
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          A=dist/AccountCleaner.app/Contents
+          for d in Frameworks Resources; do
+            echo "== $d"; ls -la "$A/$d/account_cleaner" 2>&1 | head -5
+            ls -la "$A/$d/account_cleaner/classifier/bundled" 2>&1 | head -20
+            ls -la "$A/$d/account_cleaner/classifier/bundled/e5" 2>&1 | head -20
+          done
+          find "$A" -path '*bundled*' -maxdepth 6 | head -30
+          ls -la src/account_cleaner/classifier/bundled src/account_cleaner/classifier/bundled/e5 | head -30
+
       - name: self-test 결과
         if: always()
         shell: bash
