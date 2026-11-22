@@ -14,6 +14,8 @@ from PySide6.QtSvg import QSvgRenderer
 from account_cleaner.ui.theme import tokens
 
 ICON_DIR = Path(__file__).with_name("icons")
+APP_ICON = Path(__file__).with_name("app_icon.png")
+"""앱 아이콘 (창·작업 표시줄·트레이). 실행 파일 아이콘은 packaging/icons/의 .ico·.icns"""
 SCALE = 2
 
 
@@ -73,3 +75,7 @@ def icon_file(name: str, color: str) -> str:
     path = folder / f"{name}-{color.lstrip('#')}.svg"
     path.write_text(svg_text(name, color), encoding="utf-8")
     return path.as_posix()
+
+
+def app_icon() -> QIcon:
+    return QIcon(str(APP_ICON))
