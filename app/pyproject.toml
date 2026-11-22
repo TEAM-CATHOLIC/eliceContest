@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "계정 정리 AI 에이전트 — 데스크톱 앱"
 readme = "README.md"
 authors = [
-    { name = "tomass22", email = "dominanthat@gmail.com" }
+    { name = "tomass22", email = "99718084+tomass22@users.noreply.github.com" }
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
