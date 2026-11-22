@@ -1,7 +1,9 @@
 name: Build
 
 # Mac·Windows 실행파일을 만들고, 만든 실행파일로 self-test(Qt·리소스·Playwright 드라이버·Chrome 실행)를 돌린다.
-# 결과물은 Actions 실행 페이지의 Artifacts에서 내려받는다.
+# - PR: 빌드·self-test만 한다 (결과물은 올리지 않는다)
+# - develop push: 결과물을 Actions 실행 페이지의 Artifacts에 3일간 올린다 (저장 공간 한도 #86)
+# - main push: 결과물을 GitHub Release(app-날짜-커밋)로 올린다. Release는 Artifacts 한도와 별개다
 
 on:
   push:
@@ -103,7 +105,33 @@ jobs:
         run: Compress-Archive -Path dist\AccountCleaner -DestinationPath AccountCleaner-windows.zip
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: AccountCleaner-${{ matrix.name }}
           path: app/AccountCleaner-${{ matrix.name }}.zip
-          retention-days: 14
+          # main은 바로 Release로 옮기므로 하루만 둔다
+          retention-days: ${{ github.ref == 'refs/heads/main' && 1 || 3 }}
+
+  release:
+    name: release (main)
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: GitHub Release 만들기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="app-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          gh release create "$tag" dist/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "AccountCleaner $tag" \
+            --notes "main 빌드 ($GITHUB_SHA). Windows·macOS 실행파일. 압축을 풀고 실행하세요."
